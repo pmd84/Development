@@ -231,7 +231,6 @@ def Select_NFHL_by_HUC(feature_type, NFHL_File, HUC8_list, buffer):
         # Create FVA_feature layer 
         FVA_feature_name = "FVA_{}_{}.shp".format(feature_type, HUC8)
         FVA_feature = os.path.join(HUC8_folder, FVA_feature_name)
-        arcpy.AddMessage("Adding {0} to handy folder for HUC {1}".format(FVA_feature_name, HUC8))
 
         #Select by location using feature layer
         arcpy.management.MakeFeatureLayer(NFHL_File, "FVA_feature_layer")
@@ -242,9 +241,10 @@ def Select_NFHL_by_HUC(feature_type, NFHL_File, HUC8_list, buffer):
         #Check to see if the feature is empty:
         if arcpy.management.GetCount(FVA_feature)[0] == "0":
             arcpy.AddMessage("No {0} data found for HUC {1}".format(feature_type, HUC8))
-            arcpy.AddMessage("Deleting {0} from handy folder".format(FVA_feature_name))
             arcpy.management.Delete(FVA_feature)
             continue
+        else:
+            arcpy.AddMessage("Added {0} to handy folder for HUC {1}".format(FVA_feature_name, HUC8))
         
         #if feature_type is "S_XS", use update cursor to loop through WSEL_REG and delete any values with -9999, -8888, or 9999
         if feature_type == "S_XS":
