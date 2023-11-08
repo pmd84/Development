@@ -6,64 +6,54 @@ import json
 import requests
 from arcpy import env
 from arcpy.sa import *
-import datetime
 import shutil
 import pandas as pd
 
 
-def Check_Source_Data(County_Folder, MIP_Folder, NFHL_data, county_shapefile, HUC8_Shapefile):
+def Check_Source_Data(Tool_Template_Folder):
     arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Checking Source Data #####")
+    arcpy.AddMessage("##### Checking Source Data in Tool Template Files Folder #####")
 
-    if NFHL_data == "" or NFHL_data == None:
-        NFHL_data = r"\\us0525-PPFSS01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\NFHL\rFHL_20230630.gdb"
-        arcpy.AddMessage("No NFHL Zone 3 database provided - using NFHL Zone 3 data on Stantec Server: {0}".format(NFHL_data))
-    else:
-        arcpy.AddMessage("Using provided NFHL data: {0}".format(NFHL_data))
-
-    if county_shapefile == "" or county_shapefile == None:
-        county_shapefile = r"\\us0525-PPFSS01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\scope\FFRMS_Counties.shp"
-        arcpy.AddMessage("No FFRMS Counties Shapefile provided - using FFRMS county boundary data found on Stantec Server: {0}".format(county_shapefile))
-    else:
-        arcpy.AddMessage("Using provided FFRMS county boundary shapefile: {0}".format(county_shapefile))
-
-    if HUC8_Shapefile == "" or HUC8_Shapefile == None:
-        HUC8_Shapefile = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\scope\STARRII_FFRMS_HUC8s_Scope.shp"
-        arcpy.AddMessage("No HUC8 Scope shapefile provided - using HUC8 Scope shapefile found on Stantec Server: {0}".format(HUC8_Shapefile))
-    else:
-        arcpy.AddMessage("Using provided HUC8 Scope shapefile: {0}".format(HUC8_Shapefile))
-
-    if MIP_Folder == "" or MIP_Folder == None:
-        arcpy.AddMessage("No MIP Data folder chosen. Only NFHL data will be used for FVA analysis")
-        Process_MIP = False
-    elif arcpy.Exists(MIP_Folder):
-        arcpy.AddMessage("NFHL data will be combined with MIP data found here: {0}".format(MIP_Folder))
-        Process_MIP = True
-    else:
-        arcpy.AddError("Provided folder location for MIP data does not exist: {0}" .format(MIP_Folder))
-        arcpy.AddError("Please exit and try again")
+    #If no Tool_Template_Files folder is provided, use Stantec server location
+    if Tool_Template_Folder == "" or Tool_Template_Folder == None:
+        Tool_Template_Folder = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\tools\Tool_Template_Files"
+        arcpy.AddMessage("No Tool Template Files location provided, using location on Stantec Server: {0}".format(Tool_Template_Folder))
+    
+    #Check to see if Tool_Template_Folder exists
+    if not os.path.exists(Tool_Template_Folder):
+        arcpy.AddError("Tool Template Files folder does not exist at provided lcoation Stantec Server. Please manually provide path to Tool Template Files folder and try again")
         sys.exit()
+    else:
+        arcpy.AddMessage("Tool Template Files folder found")
+    
+    #Define paths for template data
+    NFHL_data = os.path.join(Tool_Template_Folder, "rFHL_20230630.gdb")
+    county_shapefile = os.path.join(Tool_Template_Folder, "FFRMS_Counties.shp")
+    HUC8_Shapefile = os.path.join(Tool_Template_Folder, "STARRII_FFRMS_HUC8s_Scope.shp")
+    HUC_AOI_Erase_gdb = os.path.join(Tool_Template_Folder, "HUC_AOIs_Erase_Areas_XXXXXXXX.gdb")
 
-    if not arcpy.Exists(NFHL_data):
-        arcpy.AddError("No NFHL geodatabase found. Please provide NFHL data and try again".format(NFHL_data))
-        sys.exit()
+    #Check or existence of template data
+    for files in [NFHL_data, county_shapefile, HUC8_Shapefile, HUC_AOI_Erase_gdb]:
+        if not os.path.exists(files):
+            arcpy.AddError("No {0} found in Tool Template Files folder. Please manually add {0} to Tool Template Files folder and try again".format(os.path.basename(files)))
+            sys.exit()
+        else:
+            arcpy.AddMessage("{0} found".format(os.path.basename(files)))
+    
+    return NFHL_data, county_shapefile, HUC8_Shapefile, HUC_AOI_Erase_gdb
 
-    if not arcpy.Exists(county_shapefile):
-        arcpy.AddError("No FFRMS Counties Shapefile found.  Please provide FFRMS county boundary shapefile and try again".format(county_shapefile))
-        sys.exit()
-
-    if not arcpy.Exists(HUC8_Shapefile):
-        arcpy.AddError("No HUC8 Scope shapefile found.  Please provide HUC8 Scope shapefile and try again".format(HUC8_Shapefile))
-        sys.exit()
+def Create_Handy_Folder(County_Folder):
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Creating HANDy Folder within County Production Folder #####")
 
     handy_folder = os.path.join(County_Folder, "handy")
     if not os.path.exists(handy_folder):
-        arcpy.AddMessage("Creating handy folder: {0}".format(handy_folder))
+        arcpy.AddMessage("Handy folder created: {0}".format(handy_folder))
         os.makedirs(handy_folder)
     else:
-        arcpy.AddMessage("Tool output will go in handy folder: {0}".format(handy_folder))
+        arcpy.AddMessage("Tool output will go in existing handy folder: {0}".format(handy_folder))
 
-    return handy_folder, Process_MIP, NFHL_data, county_shapefile, HUC8_Shapefile
+    return handy_folder
 
 def Get_County_Info(FIPS_Code, county_shapefile):
     arcpy.AddMessage(u"\u200B")
@@ -191,21 +181,6 @@ def find_file(filename, directory):
             return output_filename 
     return None
 
-def find_MIP_files(MIP_folder, Process_MIP):
-    if Process_MIP == True:
-        #Search for S_Profil_Baseline, S_BFE, S_XS, and L_XS_Elev in MIP folder - not case sensitive
-        arcpy.AddMessage(u"\u200B")
-        arcpy.AddMessage("##### Checking MIP Data #####")
-        arcpy.AddMessage("Searching for S_Profil_Basln, S_BFE, S_XS, L_XS_Elev, and S_Fld_Haz_Ar in MIP folder")
-        S_Profil_Basln_MIP = find_file("S_Profil_Basln.shp", MIP_folder)
-        S_BFE_MIP = find_file("S_BFE.shp", MIP_folder)
-        S_XS_MIP = find_file("S_XS.shp", MIP_folder)
-        L_XS_Elev_MIP = find_file("L_XS_Elev.dbf", MIP_folder)
-        S_Fld_Haz_Ar_MIP = find_file("S_Fld_Haz_Ar.shp", MIP_folder)
-        return S_Profil_Basln_MIP, S_BFE_MIP, S_XS_MIP, L_XS_Elev_MIP, S_Fld_Haz_Ar_MIP
-    else:
-        return None, None, None, None, None
-
 def find_NFHL_files(NFHL_data):
     spatial_layers = os.path.join(NFHL_data, "FIRM_Spatial_Layers")
     #Search for S_Profil_Baseline, S_BFE, S_XS, and L_XS_Elev in NFHL database folder - not case sensitive
@@ -228,18 +203,6 @@ def find_NFHL_files(NFHL_data):
 
     return S_Profil_Basln, S_BFE, S_XS, L_XS_Elev, S_Fld_Haz_Ar
 
-def Check_MIP_Vertical_Datums(Process_MIP, MIP_files):
-    if Process_MIP == True:
-        arcpy.AddMessage(u"\u200B")
-        arcpy.AddMessage("Checking Vertical Datum for MIP Data")
-        for MIP_file in MIP_files:
-            if MIP_file is not None:
-                feature_name= os.path.splitext(os.path.basename(MIP_file))[0]
-                NGVD29 = Check_Elev_Datum(MIP_file, feature_name)
-                if NGVD29 == True:
-                    arcpy.AddError("Please perform vertical transformation - NGVD29 to NAVD88 - in the following MIP data file: {1}".format(feature_name, MIP_file))
-                    sys.exit()
-
 def move_to_convert_folder(FVA_feature, HUC8_folder):
     convert_folder = os.path.join(HUC8_folder, "Convert_elevations_in_these_files_from_NGVD29_to_NAVD88")
     if not os.path.exists(convert_folder):
@@ -251,20 +214,12 @@ def move_to_convert_folder(FVA_feature, HUC8_folder):
     arcpy.management.CopyFeatures(FVA_feature, convert_features)
     arcpy.management.Delete(FVA_feature)
 
-def Merge_NFHL_MIP_and_select_by_HUC(feature_type, NFHL_File, MIP_file, HUC8_list, buffer):
+def Select_NFHL_by_HUC(feature_type, NFHL_File, HUC8_list, buffer):
 
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Creating FVA {} files #####".format(feature_type))
 
-    # Merge feature data from MIP and NFHL
-    if MIP_file is not None:
-        arcpy.AddMessage("Merging {0} from MIP and NFHL".format(feature_type))
-        FVA_feature_merge = os.path.join("in_memory", "FVA_{}_merge".format(feature_type))
-        arcpy.management.Merge([NFHL_File, MIP_file], FVA_feature_merge)
-    else:
-        arcpy.AddMessage("NOTE: No MIP data provided - NFHL data will be only data source for {0} FVA input".format(feature_type))
-        FVA_feature_merge = NFHL_File
-
+    #Loop through HUC8s
     for HUC8 in HUC8_list:
         HUC8_folder = os.path.join(handy_folder, HUC8, "inputs", "{0}_a".format(HUC8))
 
@@ -279,7 +234,7 @@ def Merge_NFHL_MIP_and_select_by_HUC(feature_type, NFHL_File, MIP_file, HUC8_lis
         arcpy.AddMessage("Adding {0} to handy folder for HUC {1}".format(FVA_feature_name, HUC8))
 
         #Select by location using feature layer
-        arcpy.management.MakeFeatureLayer(FVA_feature_merge, "FVA_feature_layer")
+        arcpy.management.MakeFeatureLayer(NFHL_File, "FVA_feature_layer")
         arcpy.management.SelectLayerByLocation(in_layer="FVA_feature_layer", overlap_type="INTERSECT", 
                                                select_features=HUC8_Boundary, selection_type="NEW_SELECTION")
         arcpy.management.CopyFeatures(in_features="FVA_feature_layer", out_feature_class=FVA_feature)
@@ -367,7 +322,7 @@ def subset_L_XS_Elev_by_XS_LN_ID(L_XS_Elev_table, HUC8_FVA_S_XS, Output_df, feat
         arcpy.conversion.ExportTable(in_table=L_XS_Elev_table, out_table=Output_df, where_clause="XS_LN_ID IN {0}".format(tuple(XS_LN_ID_list)))
         arcpy.AddMessage("There are {0} matching entries in {1} L_XS_Elev table".format(arcpy.management.GetCount(Output_df)[0], feature_type))
 
-def Create_L_XS_Tables(HUC8_list, L_XS_Elev, L_XS_Elev_MIP):
+def Create_L_XS_Tables(HUC8_list, L_XS_Elev):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Creating L_XS_Elev files #####")
     
@@ -383,7 +338,6 @@ def Create_L_XS_Tables(HUC8_list, L_XS_Elev, L_XS_Elev_MIP):
         
         #Set paths for output L_XS_Elev files
         NFHL_output_dbf = os.path.join("in_memory","NFHL_L_XS_Elev")
-        MIP_output_dbf = os.path.join("in_memory","MIP_L_XS_Elev")
         FVA_output_dbf = os.path.join(HUC8_folder,"FVA_L_XS_Elev.dbf")
 
         #Subset NFHL L_XS_Elev using S_XS
@@ -393,26 +347,9 @@ def Create_L_XS_Tables(HUC8_list, L_XS_Elev, L_XS_Elev_MIP):
             arcpy.AddMessage("No matching NFHL L_XS_Elev found")
             continue
 
-        #If MIP data exists, subset it and merge with NFHL L_XS_Elev, otherwise save NFHL L_XS_Elev to FVA_L_XS_Elev
-        if L_XS_Elev_MIP is not None:
-            #Subset MIP L_XS_Elev
-            try:
-                subset_L_XS_Elev_by_XS_LN_ID(L_XS_Elev_MIP, HUC8_FVA_S_XS, MIP_output_dbf, "MIP")
-                
-                #merge NFHL and MIP L_XS_Elev into FVA_L_XS_Elev
-                arcpy.AddMessage("Merging NFHL and MIP L_XS_Elev")
-                arcpy.management.Merge([NFHL_output_dbf, MIP_output_dbf], FVA_output_dbf)
-            except:
-                arcpy.AddMessage("No matching MIP L_XS_Elev found")
-                
-                #Copy NFHL L_XS_Elev to FVA_L_XS_Elev
-                arcpy.AddMessage("Copying NFHL L_XS_Elev to FVA_L_XS_Elev")
-                arcpy.conversion.ExportTable(in_table=NFHL_output_dbf,out_table=FVA_output_dbf)
-
-        else:
-            #Copy NFHL L_XS_Elev to FVA_L_XS_Elev
-            arcpy.AddMessage("Copying NFHL L_XS_Elev to FVA_L_XS_Elev")
-            arcpy.conversion.ExportTable(in_table=NFHL_output_dbf,out_table=FVA_output_dbf)
+        #Export MIP to .dbf file
+        arcpy.AddMessage("Copying NFHL L_XS_Elev to FVA_L_XS_Elev")
+        arcpy.conversion.ExportTable(in_table=NFHL_output_dbf,out_table=FVA_output_dbf)
         
         #Check to see if feature is empty
         if arcpy.management.GetCount(FVA_output_dbf)[0] == "0":
@@ -505,18 +442,17 @@ if __name__ == '__main__':
     # Gather Parameter inputs from tool
     County_Folder = arcpy.GetParameterAsText(0)
     FIPS_Code = arcpy.GetParameterAsText(1)[:5]
-    MIP_folder = arcpy.GetParameterAsText(2) #Assuming this is already cleaned up in a file folder
-    NFHL_data = arcpy.GetParameterAsText(3) #Optional
-    county_shapefile = arcpy.GetParameterAsText(4) #Optional
-    HUC8_shapefile = arcpy.GetParameterAsText(5) #Optional
-    HUC_AOI_Erase_gdb = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\templates\HUC_AOIs_Erase_Areas_XXXXXXXX.gdb"
+    Tool_Template_Folder = arcpy.GetParameterAsText(2) #Assuming this is already cleaned up in a file folder
 
     #Set environment variables
     arcpy.env.workspace = County_Folder
     arcpy.env.overwriteOutput = True
 
     #Check inputs - verify county boundary, HUC8s location - Get County Boundary and HUC8 features
-    handy_folder, Process_MIP, NFHL_data, county_shapefile, HUC8_Shapefile = Check_Source_Data(County_Folder, MIP_folder, NFHL_data, county_shapefile, HUC8_shapefile)
+    NFHL_data, county_shapefile, HUC8_Shapefile, HUC_AOI_Erase_gdb = Check_Source_Data(Tool_Template_Folder)
+
+    #Create handy folder within County Production Folder
+    handy_folder = Create_Handy_Folder(County_Folder)
 
     #Get County Boundary from Shapefile
     county_boundary, county_name, state_name, state_abrv = Get_County_Info(FIPS_Code, county_shapefile)
@@ -536,16 +472,9 @@ if __name__ == '__main__':
 
     #Buffer HUC8s in handy_folder by 1km
     Create_HUC8_Shapefiles(HUC8_list, County_HUC8s)
-    
-    #Get Filenames for MIP data - only works with folder, not geodatabase
-    S_Profil_Basln_MIP, S_BFE_MIP, S_XS_MIP, L_XS_Elev_MIP, S_Fld_Haz_Ar_MIP = find_MIP_files(MIP_folder, Process_MIP)
 
     #Get Filenames for NFHL data
     S_Profil_Basln, S_BFE, S_XS, L_XS_Elev, S_Fld_Haz_Ar = find_NFHL_files(NFHL_data)
-
-    #Loop through MIP Files and check vertical datums
-    MIP_files = [S_Profil_Basln_MIP, S_BFE_MIP, S_XS_MIP, L_XS_Elev_MIP, S_Fld_Haz_Ar_MIP]
-    Check_MIP_Vertical_Datums(Process_MIP, MIP_files)
 
     #Prepare S_Fld_Haz_Ar_Static_BFE
     arcpy.AddMessage(u"\u200B")
@@ -553,30 +482,20 @@ if __name__ == '__main__':
     S_Fld_Haz_Ar_Static_BFE = Create_S_Fld_Haz_Ar_Static_BFE(S_Fld_Haz_Ar, "S_Fld_Haz_Ar_Static_BFE")
     S_Fld_Haz_Ar_Static_BFE_MIP = None
 
-    #Merge MIP and NFHL data for each feature
-    Merge_NFHL_MIP_and_select_by_HUC("S_Profil_Basln", S_Profil_Basln, S_Profil_Basln_MIP, HUC8_list, True)
-    Merge_NFHL_MIP_and_select_by_HUC("S_BFE", S_BFE, S_BFE_MIP, HUC8_list, False)
-    Merge_NFHL_MIP_and_select_by_HUC("S_Fld_Haz_Ar_Static_BFE", S_Fld_Haz_Ar_Static_BFE, S_Fld_Haz_Ar_Static_BFE_MIP, HUC8_list, False)
-    Merge_NFHL_MIP_and_select_by_HUC("S_XS", S_XS, S_XS_MIP, HUC8_list, False)
+    #Select NFHL data by HUC8 for each FVA feature 
+    Select_NFHL_by_HUC("S_Profil_Basln", S_Profil_Basln, HUC8_list, True)
+    Select_NFHL_by_HUC("S_BFE", S_BFE, HUC8_list, False)
+    Select_NFHL_by_HUC("S_Fld_Haz_Ar_Static_BFE", S_Fld_Haz_Ar_Static_BFE, HUC8_list, False)
+    Select_NFHL_by_HUC("S_XS", S_XS, HUC8_list, False)
 
     #loop through all HUC8 folders and select L_XS_Elev based on XS values
-    Create_L_XS_Tables(HUC8_list, L_XS_Elev, L_XS_Elev_MIP)
+    Create_L_XS_Tables(HUC8_list, L_XS_Elev)
 
     #Copy HUC_AOI_Erase_gdb to each HUC8 folder
     Copy_AOI_Erase_GDB(HUC8_list, HUC_AOI_Erase_gdb)
 
     #Loop through HUC8 folders and copy the _a folder to _backup_files folder
     Create_Backup_Files(HUC8_list)
-
-    #FOR STANTEC USE ONLY: 
-    Stantec_HUC_Tracker = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\scope\Stantec_FFRMS_Scope.gdb\Stantec_FFRMS_HUCs"
-    if arcpy.Exists(Stantec_HUC_Tracker):
-        #Get HUC8s from Stantec Scope file
-        county_field = "STN_COUNTY"
-        try:
-            HUC8_list = Get_Stantec_County_HUC8_Scope(Stantec_HUC_Tracker, county_name, state_abrv, county_field)
-        except:
-            pass
 
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### FVA Input Processing Complete #####")
