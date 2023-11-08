@@ -9,39 +9,36 @@ from arcpy.sa import *
 import datetime
 import shutil
 
-def Check_Source_Data(Template_FFRMS_gdb, NFHL_data, county_shapefile, Riv_or_Cst):
+def Check_Source_Data(Tool_Template_Folder, Riv_or_Cst):
     arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Checking Source Data #####")
+    arcpy.AddMessage("##### Checking Source Data in Tool Template Files Folder #####")
     
-    if Template_FFRMS_gdb == "" or Template_FFRMS_gdb == None:
-        Template_FFRMS_gdb = r"\\us0525-PPFSS01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\templates\FFRMS_{0}_DB_20231003.gdb".format(Riv_or_Cst)
-        arcpy.AddMessage("No FFRMS template geodatabase provided - using {0} template geodatabase on Stantec Server: {1}".format(Riv_or_Cst, Template_FFRMS_gdb))
-    else:
-        arcpy.AddMessage("Using provided FFRMS template geodatabase: {0}".format(Template_FFRMS_gdb))
-
-    if NFHL_data == "" or NFHL_data == None:
-        NFHL_data = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\NFHL\rFHL_20230630.gdb"
-        arcpy.AddMessage("No NFHL Zone 3 database provided - using NFHL Zone 3 data on Stantec Server: {0}".format(NFHL_data))
-    else:
-        arcpy.AddMessage("Using provided NFHL data: {0}".format(NFHL_data))
-
-    if county_shapefile == "" or county_shapefile == None:
-        county_shapefile = r"\\us0525-PPFSS01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\scope\FFRMS_Counties.shp"
-        arcpy.AddMessage("No FFRMS Counties Shapefile provided - using FFRMS county boundary data found on Stantec Server: {0}".format(county_shapefile))
-    else:
-        arcpy.AddMessage("Using provided FFRMS county boundary shapefile: {0}".format(county_shapefile))
-
-    if not arcpy.Exists(Template_FFRMS_gdb):
-        arcpy.AddError("No FFRMS template geodatabase found.  Please provide FFRMS template geodatabase and try again".format(Template_FFRMS_gdb))
+    if Tool_Template_Folder == "" or Tool_Template_Folder == None:
+            Tool_Template_Folder = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\tools\Tool_Template_Files"
+            arcpy.AddMessage("No Tool Template Files location provided, using location on Stantec Server: {0}".format(Tool_Template_Folder))
+        
+    #Check to see if Tool_Template_Folder exists
+    if not os.path.exists(Tool_Template_Folder):
+        arcpy.AddError("Tool Template Files folder does not exist at provided lcoation Stantec Server. Please manually provide path to Tool Template Files folder and try again")
         sys.exit()
+    else:
+        arcpy.AddMessage("Tool Template Files folder found")
 
-    if not arcpy.Exists(NFHL_data):
-        arcpy.AddError("No NFHL geodatabase found.  Please provide NFHL data and try again".format(NFHL_data))
-        sys.exit()
+    #Set File Paths
+    if Riv_or_Cst == "Riverine":
+        Template_FFRMS_gdb = os.path.join(Tool_Template_Folder, "FFRMS_Riverine_DB_20231020.gdb")
+    else:
+        Template_FFRMS_gdb = os.path.join(Tool_Template_Folder, "FFRMS_Coastal_DB_20231020.gdb")
+    NFHL_data = os.path.join(Tool_Template_Folder, "rFHL_20230630.gdb")
+    county_shapefile = os.path.join(Tool_Template_Folder, "FFRMS_Counties.shp")
 
-    if not arcpy.Exists(county_shapefile):
-        arcpy.AddError("No FFRMS Counties Shapefile found.  Please provide FFRMS county boundary shapefile and try again".format(county_shapefile))
-        sys.exit()
+    #Check or existence of template data
+    for files in [NFHL_data, county_shapefile, Template_FFRMS_gdb]:
+        if not os.path.exists(files):
+            arcpy.AddError("No {0} found in Tool Template Files folder. Please manually add {0} to Tool Template Files folder and try again".format(os.path.basename(files)))
+            sys.exit()
+        else:
+            arcpy.AddMessage("{0} found".format(os.path.basename(files)))
 
     return Template_FFRMS_gdb, NFHL_data, county_shapefile
 
@@ -367,28 +364,6 @@ def Populate_L_Source_Cit(FFRMS_Geodatabase, county_name, state_name, state_abrv
         for entry in entries:
             cursor.insertRow([entry["SOURCE_CIT"], entry["CID"], entry["CITATION"], entry["PUBLISHER"], entry["TITLE"], entry["AUTHOR"], entry["PUB_PLACE"], entry["PUB_DATE"], entry["WEBLINK"], entry["MEDIA"], entry["VERSION_ID"], entry["CASE_NO"], entry["MIP_CASE_N"]])
 
-def Create_Erase_Areas_Feature_Class(Erase_Areas_File, Output_Spatial_Reference):
-    arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Creating Erase_Areas feature class #####")
-
-    #Delete existing Erase_Areas feature class and create new one to ensure same schema
-    if arcpy.Exists(Erase_Areas_File):
-        arcpy.AddWarning("Erase_Areas_File already exists at {0}".format(Erase_Areas_File))
-        arcpy.AddWarning("Not creating new Erase_Areas feature class - please delete existing Erase Areas and start over if you wish to re-create it")
-
-    output_path = os.path.dirname(Erase_Areas_File)
-    output_name = os.path.basename(Erase_Areas_File)
-    arcpy.management.CreateFeatureclass(out_path=output_path, out_name=output_name, geometry_type="POLYGON", spatial_reference=Output_Spatial_Reference)
-
-   #Add fields for each FVA
-    fields_to_add = ['Erase_All_FVAs','Erase_00FVA', 'Erase_01FVA', 'Erase_02FVA', 'Erase_0_2PCT', 'Erase_03FVA','Notes']
-    for i, field in enumerate(fields_to_add):
-        if field == 'Notes':
-            arcpy.management.AddField(Erase_Areas_File, field, "TEXT", field_length=100)
-        else:
-            arcpy.management.AddField(Erase_Areas_File, field, "TEXT", field_length=10)
-            arcpy.management.AssignDomainToField(Erase_Areas_File, field, 'D_TRUEFALSE')
-
 def Configure_Attribute_Domains(FFRMS_Geodatabase, Template_FFRMS_gdb, County_Deliverables_Folder):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Configuring S_AOI_Ar Attributes #####")
@@ -469,15 +444,13 @@ if __name__ == '__main__':
     FIPS_code = arcpy.GetParameterAsText(1)[:5]
     Riv_or_Cst = arcpy.GetParameterAsText(2)
     UTM_zone = arcpy.GetParameterAsText(3)
-    Template_FFRMS_gdb = arcpy.GetParameterAsText(4)
-    NFHL_data = arcpy.GetParameterAsText(5)
-    county_shapefile = arcpy.GetParameterAsText(6)
+    Tool_Template_Folder = arcpy.GetParameterAsText(4)
 
     arcpy.env.workspace = County_Production_Folder
     arcpy.env.overwriteOutput = True
 
     #Validate source data
-    Template_FFRMS_gdb, NFHL_data, county_shapefile = Check_Source_Data(Template_FFRMS_gdb, NFHL_data, county_shapefile, Riv_or_Cst)
+    Template_FFRMS_gdb, NFHL_data, county_shapefile = Check_Source_Data(Tool_Template_Folder, Riv_or_Cst)
 
     State_code = FIPS_code[:2]
     County_code = FIPS_code[2:5]
@@ -493,10 +466,6 @@ if __name__ == '__main__':
 
     #copy template geodatabase
     FFRMS_Geodatabase = Copy_Template_FFRMS_Geodatabase(Template_FFRMS_gdb, geodatabase_dir, county_name, state_abrv, Riv_or_Cst)
-    
-    #Create Erase Areas
-    Erase_Areas_File = os.path.join(FFRMS_Geodatabase, "Erase_Areas_{0}_{1}".format(state_abrv, FIPS_code))
-    Create_Erase_Areas_Feature_Class(Erase_Areas_File, Output_Spatial_Reference)
 
     arcpy.env.workspace = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers")
 
