@@ -12,43 +12,39 @@ Parameters:
 
 """
 import arcpy
+import sys
 from sys import argv
 import os
 import json
 import requests
 from arcpy import env
 from arcpy.sa import *
+import shutil
+import pandas as pd
 
-#Set workspace to location of arcgis project
-
-def check_erase_areas(FFRMS_Geodatabase):
-
-    arcpy.env.workspace = FFRMS_Geodatabase
-    fcs = arcpy.ListFeatureClasses()
-
-    for fc in fcs:
-        if "Erase_Areas" in fc:
-            arcpy.AddMessage("Found Erase Areas Feature Class")
-            Erase_Areas = os.path.join(FFRMS_Geodatabase, fc)
-            break
-    else:
-        arcpy.AddWarning("No Erase Areas Feature Class Found")
-        arcpy.AddWarning("No areas will be erased from stitched rasters")
-        arcpy.AddWarning("If desired, ensure a feature class named 'Erase_Areas...' exists within county geodatabase")
-        Erase_Areas = ""
-    return Erase_Areas
-
-def Check_Inputs(county_shapefile):
+def Check_Source_Data(Tool_Template_Folder):
     arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Checking Input Files #####")
+    arcpy.AddMessage("##### Checking Source Data in Tool Template Files Folder #####")
 
-    if county_shapefile == "" or county_shapefile == None:
-        county_shapefile = r"\\us0525-PPFSS01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\scope\FFRMS_Counties.shp"
-        arcpy.AddMessage("No FFRMS Counties Shapefile provided - using FFRMS county boundary data found on Stantec Server here {0}".format(county_shapefile))
+    #If no Tool_Template_Files folder is provided, use Stantec server location
+    if Tool_Template_Folder == "" or Tool_Template_Folder == None:
+        Tool_Template_Folder = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\tools\Tool_Template_Files"
+        arcpy.AddMessage("No Tool Template Files location provided, using location on Stantec Server: {0}".format(Tool_Template_Folder))
+    
+    #Check to see if Tool_Template_Folder exists
+    if not os.path.exists(Tool_Template_Folder):
+        arcpy.AddError("Tool Template Files folder does not exist at provided lcoation Stantec Server. Please manually provide path to Tool Template Files folder and try again")
+        sys.exit()
     else:
-        arcpy.AddMessage("Using FFRMS Counties Shapefile provided by user at {0}".format(county_shapefile))
-    if not arcpy.Exists(county_shapefile):
-        arcpy.AddError("Missing FFRMS Counties Shapefile.  Please provide FFRMS county boundary shapefile and try again".format(county_shapefile))
+        arcpy.AddMessage("Tool Template Files folder found")
+
+    county_shapefile = os.path.join(Tool_Template_Folder, "FFRMS_Counties.shp")
+
+    if not os.path.exists(county_shapefile):
+        arcpy.AddError("No {0} found in Tool Template Files folder. Please manually add {0} to Tool Template Files folder and try again".format(os.path.basename(county_shapefile)))
+        sys.exit()
+    else:
+        arcpy.AddMessage("{0} found".format(os.path.basename(county_shapefile)))
 
     return county_shapefile
 
@@ -359,24 +355,118 @@ def get_UTM_and_FIPS(FFRMS_Geodatabase):
 
     return UTM_zone, FIPS_CODE
 
+def Create_Tool_Output_Folder_Dictionary(Tool_Output_Folders):
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Checking Tool Output Folder Naming Convention #####")
+
+    HUC8_tool_folder_dict = {}
+    for tool_folder in Tool_Output_Folders:
+        
+        #Run check of first 8 characters - must be numeric 8 digit HUC8 number
+        HUC8 = check_HUC8_naming_convention(tool_folder, "First")
+        arcpy.AddMessage("Tool Output Folder {0} is named correctly".format(tool_folder))
+
+        #Add HUC8 and tool folder location to dictionary
+        HUC8_tool_folder_dict[HUC8] = tool_folder
+
+    return HUC8_tool_folder_dict
+
+def check_HUC8_naming_convention(file_or_folder, first_last):
+    if first_last == "First":
+        HUC8 = os.path.basename(file_or_folder)[:8]
+    elif first_last == "Last":
+        HUC8 = os.path.basename(file_or_folder)[-8:]
+    #if any characters are not alphanumeric, raise error
+    for num in HUC8:
+        if num not in "0123456789":
+            arcpy.AddError("Tool Output Folder {0} is not named correctly.".format(file_or_folder))
+            arcpy.AddError("{0} 8 characters of output folder name MUST be HUC8 number. {0} 8 are {1}".format(first_last, HUC8))
+            arcpy.AddError("Please rename {0} 8 characters of tool output folder to HUC8 number and try again".format(first_last)))
+            sys.exit()
+    
+    return HUC8
+    
+def Create_AOI_and_Erase_Area_Dictionaries(HUC_Erase_Area_gdbs):
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Checking for Erase Areas and AOI Feature Classes #####")
+
+    HUC8_erase_area_dict, HUC8_AOI_dict = {}, {}
+    for gdb in HUC_Erase_Area_gdbs:
+        gdb_name = os.path.basename(gdb)
+        HUC8 = check_HUC8_naming_convention(gdb, "Last")
+        arcpy.AddMessage("AOI_Erase_Areas geodatabase {0} is named correctly".format(gdb_name))
+
+        #Check for existence of Erase Areas and AOI feature classes
+        Erase_Area_Feature = os.path.join(gdb, "Erase_Areas_{0}".format(HUC8))
+        AOI_Feature = os.path.join(gdb, "FFRMS_Spatial_Layers", "S_AOI_Ar_{0}".format(HUC8))
+
+        if not arcpy.Exists(Erase_Area_Feature):
+            arcpy.AddError("Feature 'Erase_Areas_{0}' does not exist in {1}. Please rename Erase Areas to 'Erase_Areas_{0}' and try again".format(HUC8, gdb_name))
+            sys.exit()
+        
+        if not arcpy.Exists(AOI_Feature):
+            arcpy.AddError("Feature 'S_AOI_Ar_{0}' does not exist in FFRMS_Spatial_Layers of {1}. Please rename AOI to 'S_AOI_Ar_{0}' within FFRMS_Spatial_Layers and try again".format(HUC8, gdb_name))
+            sys.exit()
+
+        #Add to dictionary
+        HUC8_erase_area_dict[HUC8] = Erase_Area_Feature
+        HUC8_AOI_dict[HUC8] = AOI_Feature
+
+        return HUC8_erase_area_dict, HUC8_AOI_dict
+
+def Check_Erase_Areas(HUC8_erase_area_dict):
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Checking Erase Areas T/F Values #####")
+
+    for HUC8, Erase_Area_Feature in HUC8_erase_area_dict.items():
+        #Search cursor through fields to find any True values
+        search_fields = ["OBJECTID", "Erase_All_FVAs", "Erase_00FVA", "Erase_01FVA", "Erase_02FVA", "Erase_03FVA", "Erase_0_2PCT"]
+        arcpy.AddMessage("HUC8 {0}".format(HUC8))
+
+        with arcpy.da.UpdateCursor(Erase_Area_Feature, search_fields) as cursor:
+            for row in cursor:
+                if "T" not in row:
+                    arcpy.AddError("Erase Areas for HUC8 {0} has no True values in row with OBJECTID {1}. Please update Erase Areas to contain at least one T value per row, and try again".format(HUC8, row[0]))
+                    sys.exit()
+                
+                #Make sure lower FVAs are true if higher FVAs are true - ignoring 0_2PCT
+                if row[5] == "T":
+                    row[2] =row[3] = row[4] = "T"
+                elif row[4] == "T":
+                    row[2] = row[3] = "T"
+                elif row[3] == "T":
+                    row[2] = "T"
+                cursor.updateRow(row)
+
+        arcpy.AddMessage("Erase Areas are formatted properly")
+    return
 
 if __name__ == '__main__':
 
     # Gather Parameter inputs from tool
-    Tool_Output_Folders = arcpy.GetParameterAsText(0).split(";")
-    FFRMS_Geodatabase = arcpy.GetParameterAsText(1)
-    FVAs = arcpy.GetParameterAsText(2).split(";")
-    county_shapefile = arcpy.GetParameterAsText(3)
-    Output_Folder = os.path.dirname(FFRMS_Geodatabase) #Raster output as given by user
+    Tool_Output_Folders = arcpy.GetParameterAsText(0).split(";") #First 8 characters MUST be HUC8 number
+    HUC_Erase_Area_gdbs = arcpy.GetParameterAsText(1).split(";")
+    FFRMS_Geodatabase = arcpy.GetParameterAsText(2)
+    FVAs = arcpy.GetParameterAsText(3).split(";")
+    Tool_Template_Folder = arcpy.GetParameterAsText(4)
 
-    # TODO: Add Clip By HUC8 boundary option
-    # TODO: Add Erase Area specific HUC8 only option
+    Output_Folder = os.path.dirname(FFRMS_Geodatabase)
+
+    #* Alert user if any Erase_Areas features have no “True” values.
+    #* Erases all FVAs below a “True” value in Erase Areas (i.e., will erase FVA00 and FVA01 if FVA02 is True)
+    # TODO: Accommodates output naming convention for Atkins/Dewberry HANDy tool, (i.e., rasters with “.tiff” extension). Tool will still find all Stantec outputs as they currently are.
+    # TODO: Erases Areas by HUC8, rather than county-wide
+    # TODO: Appends AOIs from the HUC8-level database into the county-wide database (people had to manually do this last month)
 
     #Environment settings
     arcpy.env.workspace = FFRMS_Geodatabase
     arcpy.env.overwriteOutput = True
+
+    #Check tool output folder naming
+    HUC8_tool_folder_dict = Create_Tool_Output_Folder_Dictionary(Tool_Output_Folders)
     
-    Erase_Areas = check_erase_areas(FFRMS_Geodatabase)
+    #Check that Erase Areas have at least one True value for each feature
+    HUC8_erase_area_dict, HUC8_AOI_dict = Create_AOI_and_Erase_Area_Dictionaries(HUC_Erase_Area_gdbs)
 
     #Create pixel type dictionary for naming purposes when checking raster pixel depth
     pixel_type_dict = {
@@ -409,7 +499,7 @@ if __name__ == '__main__':
     UTM_zone, Output_Spatial_Reference, Spatial_Reference_String = Check_Spatial_Reference(UTM_zone, FIPS_code)
 
     #Check if county shapefile is provided, if not use default
-    county_shapefile = Check_Inputs(county_shapefile)
+    county_shapefile = Check_Source_Data(Tool_Template_Folder)
 
     #Create County Boundary shapefile
     County_Boundary = Get_County_Boundary(FIPS_code, FFRMS_Geodatabase, county_shapefile)
