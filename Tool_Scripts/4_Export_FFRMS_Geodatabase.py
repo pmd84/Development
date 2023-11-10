@@ -102,55 +102,6 @@ def exportShapefiles(FFRMS_Geodatabase, shapefile_dir):
 
     arcpy.AddMessage("Shapefile Export Complete")
 
-def checkEraseAreasOutputLocation(FFRMS_Geodatabase, Erase_Areas_Location, FIPS_code, state_abrv, raster_dir, shapefile_dir, shapefile_subdir):
-    #export Erase_Areas to Working folder as a shapefile
-    arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("Checking validity of Erase_Areas export location")
-
-    arcpy.AddMessage("Folder location of FFRMS Geodatabase: {0}".format(os.path.dirname(FFRMS_Geodatabase)))
-
-    #check to see if Erase_Areas location is a folder or geodatabase
-    if not arcpy.Exists(Erase_Areas_Location):
-        arcpy.AddError("Erase_Areas Export Failed - pick a valid folder location or geodatabase and try again")
-        exit()
-
-    #Can't be saved to FFRMS Geodatabase
-    if Erase_Areas_Location == FFRMS_Geodatabase:
-        arcpy.AddError("Erase_Areas Export Failed - can't choose FFRMS Geodatabase as export location. Please choose another export location and try again.")
-        exit()
-
-    #Can't be saved to Raster or Shapefile folder
-    if Erase_Areas_Location == shapefile_dir or Erase_Areas_Location == raster_dir or Erase_Areas_Location == shapefile_subdir:
-        arcpy.AddError("Erase_Areas Export Failed - can't choose Raster or Shapefile folder as export location. Please choose another export location and try again.")
-        exit()
-
-    #Can't be saved to FFRMS Geodatabase parent folder
-    if Erase_Areas_Location == os.path.dirname(FFRMS_Geodatabase):
-        arcpy.AddError("Erase_Areas Export Failed - can't choose FFRMS Geodatabase parent folder as export location. Please choose another export location and try again.")
-        exit()
-
-    #Can't be saved to FFRMS County folder
-    if Erase_Areas_Location == os.path.dirname(os.path.dirname(FFRMS_Geodatabase)):
-        arcpy.AddError("Erase_Areas Export Failed - can't choose FFRMS County folder as export location. Please choose another export location and try again.")
-        exit()
-
-    #check if gdb, choose no extension 
-    if os.path.splitext(Erase_Areas_Location)[1] == ".gdb":
-        file_extension = ""
-    #if the data type is a feature dataset, choose no extension
-    elif arcpy.Describe(Erase_Areas_Location).dataType == "FeatureDataset":
-        file_extension = ""
-    #if the data type is a folder, choose .shp extension
-    else:
-        file_extension = ".shp"
-
-    #Set file naming convention and location
-    Erase_Areas_File = os.path.join(Erase_Areas_Location, "{0}_{1}_Erase_Areas{2}".format(state_abrv, FIPS_code, file_extension))
-    arcpy.AddMessage("Erase_Areas export location is valid")
-    arcpy.AddMessage("Erase_Areas will be exported to {0}".format(Erase_Areas_File))
-
-    return Erase_Areas_File
-
 def exportEraseAreas(FFRMS_Geodatabase, Erase_Areas_File):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Exporting Erase_Areas to Standalone Shapefile #####")
@@ -197,7 +148,8 @@ if __name__ == "__main__":
 
     #Get geodatabase as parameter from script tool
     FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
-    Erase_Areas_Location = arcpy.GetParameterAsText(1)
+    Features_to_Export = arcpy.GetParameterAsText(1)
+
     arcpy.env.overwriteOutput = True
     arcpy.env.transferDomains = False
 
@@ -213,10 +165,15 @@ if __name__ == "__main__":
     #Get export locations
     raster_dir, shapefile_dir, shapefile_subdir = getDirectories(FFRMS_Geodatabase, state_abrv, FIPS_code, riv_or_cst)
 
-    Erase_Areas_File = checkEraseAreasOutputLocation(FFRMS_Geodatabase, Erase_Areas_Location, FIPS_code, state_abrv, raster_dir, shapefile_dir, shapefile_subdir)
-
     #Export Rasters, Shapefiles, and Erase_Areas
-    exportEraseAreas(FFRMS_Geodatabase, Erase_Areas_File)
-    exportRasters(FFRMS_Geodatabase, raster_dir)
-    exportShapefiles(FFRMS_Geodatabase, shapefile_subdir)
+    if Features_to_Export =="Shapefiles Only":
+        exportShapefiles(FFRMS_Geodatabase, shapefile_subdir)
+    elif Features_to_Export == "Rasters Only":
+        exportRasters(FFRMS_Geodatabase, raster_dir)
+    elif Features_to_Export == "All":
+        exportRasters(FFRMS_Geodatabase, raster_dir)
+        exportShapefiles(FFRMS_Geodatabase, shapefile_subdir)
+
+
+
     
