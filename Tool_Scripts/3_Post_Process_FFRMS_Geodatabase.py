@@ -435,7 +435,7 @@ def get_FIPS(FFRMS_Geodatabase):
 
     return FIPS_code
 
-def find_CL_01_QC_point_files(tool_folder):
+def find_CL_01_QC_point_files(tool_folder, HUC8):
     #set folder and shapefiles locations
     
     tool_folder = tool_folder.replace("'","") #Fixes One-Drive folder naming 
@@ -455,12 +455,10 @@ def find_CL_01_QC_point_files(tool_folder):
         arcpy.AddWarning("Could not find qc_points_cl.shp in qc_points folder: {0}".format(qc_folder))
         return None
     else:
-        arcpy.AddMessage("Found qc_points_cl.shp")
+        arcpy.AddMessage("Found qc_points_cl.shp for HUC8 {0}".format(HUC8))
         return cl_01_points_file
 
 def loop_through_tool_folders_for_cl_01_points_shapefiles(Tool_Output_Folders):
-    arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Finding CL QC Point Shapefiles within tool folders #####")
 
     cl_01_points_shapefiles_list = []
 
@@ -469,25 +467,40 @@ def loop_through_tool_folders_for_cl_01_points_shapefiles(Tool_Output_Folders):
         tool_folder = tool_folder.replace("'","") #Fixes One-Drive folder naming 
 
         HUC8 = os.path.basename(tool_folder)
-        arcpy.AddMessage("HUC {0}".format(HUC8))
         
         #Search tool folder for shapefile
-        cl_01_points_shapefile = find_CL_01_QC_point_files(tool_folder)
+        cl_01_points_shapefile = find_CL_01_QC_point_files(tool_folder, HUC8)
 
         #If shapefile is found, add to list
         if cl_01_points_shapefile is not None:
             cl_01_points_shapefiles_list.append(cl_01_points_shapefile)
 
     #Merge all cl_01_points_shapefiles into one
-    arcpy.AddMessage("Merging all handy centerline qc points")
+    arcpy.AddMessage("Gathered all handy centerline qc points")
     centerline_qc_points = os.path.join("in_memory", "all_handy_centerline_qc_points")
     arcpy.management.Merge(cl_01_points_shapefiles_list, centerline_qc_points)
 
     return centerline_qc_points
 
+def Select_cl_QC_Points_on_county_S_XS(centerline_qc_points, NFHL_data, county_boundary):
+    arcpy.AddMessage("Selecting QC points that intersect with NFHL S_XS and are within county boundary")
+    S_XS = os.path.join(NFHL_data, "FIRM_Spatial_Layers", "S_XS")
+
+    #clip cl points to county boundary
+    cl_points_clip = r"in_memory/cl_points_clip"
+    arcpy.analysis.Clip(centerline_qc_points, county_boundary, cl_points_clip)
+
+    #select all points that intersect with S_XS
+    arcpy.MakeFeatureLayer_management(cl_points_clip, "cl_points_copy_intersect")
+    arcpy.management.SelectLayerByLocation(in_layer="cl_points_copy_intersect", overlap_type="WITHIN A DISTANCE", select_features=S_XS, search_distance="0.1 Meters", selection_type="NEW_SELECTION")
+    
+    #append selected points to S_Raster_QC_pt
+    centerline_qc_points_NFHL = os.path.join("in_memory", "centerline_qc_points_NFHL")
+    arcpy.management.CopyFeatures("cl_points_copy_intersect", centerline_qc_points_NFHL)
+
+    return centerline_qc_points_NFHL
+
 def Check_QC_Pass_Rate(centerline_qc_points_NFHL):
-    arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Assessing QC Point pass rate #####")
 
     num_handy_qc_points_failed = 0
     total_qc_points = 0
@@ -553,6 +566,9 @@ if __name__ == "__main__":
     S_Raster_QC_pt = Populate_S_Raster_QC_pt(FFRMS_Geodatabase, NFHL_data, Tool_Output_Folders, county_boundary, FIPS_code, county_name)
     
     #Check_QC_Pass_Rate(S_Raster_QC_pt)
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Assessing QC Point pass rate #####")
+
     centerline_qc_points = loop_through_tool_folders_for_cl_01_points_shapefiles(Tool_Output_Folders)
-
-
+    centerline_qc_points_NFHL = Select_cl_QC_Points_on_county_S_XS(centerline_qc_points, NFHL_data, county_boundary)
+    Check_QC_Pass_Rate(centerline_qc_points_NFHL)

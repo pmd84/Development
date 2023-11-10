@@ -19,31 +19,36 @@ import glob
 import sys
 import shutil
 
-def Check_Source_Data(XML_template_file, HUC8_Shapefile):
+
+def Check_Source_Data(Tool_Template_Folder):
     arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Checking Source Data #####")
+    arcpy.AddMessage("##### Checking Source Data in Tool Template Files Folder #####")
+
+    #If no Tool_Template_Files folder is provided, use Stantec server location
+    if Tool_Template_Folder == "" or Tool_Template_Folder == None:
+        Tool_Template_Folder = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\tools\Tool_Template_Files"
+        arcpy.AddMessage("No Tool Template Files location provided, using location on Stantec Server: {0}".format(Tool_Template_Folder))
     
-    if XML_template_file == "" or XML_template_file == None:
-        XML_template_file = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\templates\XXXXXC_STARII_FFRMS_metadata_template.xml"
-        arcpy.AddMessage("No XML template file provided - using template STARII file on Stantec Server: {0}".format(XML_template_file))
+    #Check to see if Tool_Template_Folder exists
+    if not os.path.exists(Tool_Template_Folder):
+        arcpy.AddError("Tool Template Files folder does not exist at provided lcoation Stantec Server. Please manually provide path to Tool Template Files folder and try again")
+        sys.exit()
     else:
-        arcpy.AddMessage("Using provided STARII XML template file: {0}".format(XML_template_file))
+        arcpy.AddMessage("Tool Template Files folder found")
+    
+    #Define paths for template data
+    HUC8_Shapefile = os.path.join(Tool_Template_Folder, "STARRII_FFRMS_HUC8s_Scope.shp")
+    XML_template_file = os.path.join(Tool_Template_Folder, "XXXXXC_STARRII_FFRMS_metadata_template.xml")
 
-    if HUC8_Shapefile == "" or HUC8_Shapefile == None:
-        HUC8_Shapefile = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\scope\STARRII_FFRMS_HUC8s_Scope.shp"
-        arcpy.AddMessage("No HUC8 Scope shapefile provided - using HUC8 Scope shapefile found on Stantec Server: {0}".format(HUC8_Shapefile))
-    else:
-        arcpy.AddMessage("Using provided HUC8 Scope shapefile: {0}".format(HUC8_Shapefile))
-
-    if not arcpy.Exists(XML_template_file):
-        arcpy.AddError("No XML template file found.  Please provide XML template file and try again".format(XML_template_file))
-        exit()
-
-    if not arcpy.Exists(HUC8_Shapefile):
-        arcpy.AddError("No HUC8 Scope shapefile found.  Please provide HUC8 Scope shapefile and try again".format(HUC8_Shapefile))
-        exit()
-
-    return XML_template_file, HUC8_Shapefile
+    #Check or existence of template data
+    for files in [HUC8_Shapefile, XML_template_file]:
+        if not os.path.exists(files):
+            arcpy.AddError("No {0} found in Tool Template Files folder. Please manually add {0} to Tool Template Files folder and try again".format(os.path.basename(files)))
+            sys.exit()
+        else:
+            arcpy.AddMessage("{0} found".format(os.path.basename(files)))
+    
+    return HUC8_Shapefile, XML_template_file
 
 def Copy_Template_XML_to_County_Folder(FFRMS_Geodatabase, XML_template_file, FIPS_CODE):
     arcpy.AddMessage(u"\u200B")
@@ -441,7 +446,7 @@ if __name__ == "__main__":
     Output_folder = os.path.dirname(FFRMS_Geodatabase)
 
     #Check if XML_template_file and HUC8_Shapefile are provided
-    XML_template_file, HUC8_Shapefile =  Check_Source_Data(XML_template_file, HUC8_Shapefile)
+    HUC8_Shapefile, XML_template_file =  Check_Source_Data(XML_template_file, HUC8_Shapefile)
     
     #Initialize XML_data_replacements dictionary
     XML_data_replacements = {}
