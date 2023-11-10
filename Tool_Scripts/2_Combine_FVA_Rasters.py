@@ -409,7 +409,7 @@ def Check_Erase_Areas(HUC8_erase_area_dict):
         arcpy.AddMessage("Erase Areas are formatted properly")
     return
 
-def find_and_process_rasters_in_folder(folder, raster_name, FVA, HUC8_erase_area_dict, HUC8_shapefile, Clip_By_HUC8, county_boundary):
+def find_and_process_rasters_in_folder(folder, raster_name, FVA, HUC8_erase_area_dict, county_boundary):
             
     #Find tool output rasters:
     HUC8_raster_list = []
@@ -449,7 +449,7 @@ def find_and_process_rasters_in_folder(folder, raster_name, FVA, HUC8_erase_area
             query = "{0} = 'T' OR {1} = 'T'".format(field_name1, field_name2)
             arcpy.management.MakeFeatureLayer(Erase_Area_Feature, "Erase_Area_subset", query)
 
-            #! Test with no T values
+            #! Test with no T values in FVA
 
             arcpy.AddMessage("Erasing {0} raster based on Erase_Area".format(raster_name))
             erase = True
@@ -541,14 +541,6 @@ if __name__ == '__main__':
     FVAs = arcpy.GetParameterAsText(3).split(";")
     Tool_Template_Folder = arcpy.GetParameterAsText(4)
 
-    Output_Folder = os.path.dirname(FFRMS_Geodatabase)
-
-    #* DONE: Alert user if any Erase_Areas features have no “True” values.
-    #* DONE Erases all FVAs below a “True” value in Erase Areas (i.e., will erase FVA00 and FVA01 if FVA02 is True)
-    #* DONE: Accommodates output naming convention for Atkins/Dewberry HANDy tool, (i.e., rasters with “.tiff” extension). Tool will still find all Stantec outputs as they currently are.
-    # TODO: Erases Areas by HUC8, rather than county-wide
-    # TODO: Appends AOIs from the HUC8-level database into the county-wide database (people had to manually do this last month)
-
     #Environment settings
     arcpy.env.workspace = FFRMS_Geodatabase
     arcpy.env.overwriteOutput = True
@@ -558,7 +550,6 @@ if __name__ == '__main__':
     HUC8_tool_folder_dict = Create_Tool_Output_Folder_Dictionary(Tool_Output_Folders)
     
     #Check that Erase Areas have at least one True value for each feature
-
     HUC8_erase_area_dict, HUC8_AOI_dict = Create_AOI_and_Erase_Area_Dictionaries(HUC_Erase_Area_gdbs)
 
     #Create pixel type dictionary for naming purposes when checking raster pixel depth
@@ -608,7 +599,7 @@ if __name__ == '__main__':
         
         #Check for existence of HANDy Rasters
         handy_raster_name = raster_dict[FVA]
-        Input_rasters = find_and_process_rasters_in_folder(Tool_Output_Folders, handy_raster_name, FVA, HUC8_erase_area_dict, HUC8_shapefile, County_Boundary)
+        Input_rasters = find_and_process_rasters_in_folder(Tool_Output_Folders, handy_raster_name, FVA, HUC8_erase_area_dict, County_Boundary)
         if Input_rasters == []:
             arcpy.AddMessage("No {0} rasters found in any of the tool output folders. Moving on to next raster".format(FVA))
             continue
@@ -630,7 +621,36 @@ if __name__ == '__main__':
         arcpy.AddMessage("Deleting Temporary HUC8 Rasters")
         for file in Input_rasters:
             arcpy.management.Delete(file)
-    
+        arcpy.management.Delete(Empty_Raster_Dataset)
+        
+        
     arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### All FVA Rasters Processed Complete #####")
+    arcpy.AddMessage("##### All FVA Rasters Processed #####")
+
+    #Append all AOIs
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Appending AOIs to County Geodatabase S_AOI_Ar #####")
+
+    AOI_Target = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers", "S_AOI_Ar")
+
+    #If there no items in the HUC8_AOI_dict, then there are no AOIs to append
+    if len(HUC8_AOI_dict) == 0:
+        arcpy.AddMessage("No AOIs to append")
+    else:
+        #Make sure geodtabase has S_AOI_Target feature class
+        if not arcpy.Exists(AOI_Target):
+            arcpy.AddWarning("No S_AOI_Ar found in county geodatabase. Creating feature from first HUC8 AOI provided")
+            #copy first AOI to AOI_Target
+            first_AOI = list(HUC8_AOI_dict.values())[0]
+            arcpy.management.CopyFeatures(first_AOI, AOI_Target)
+            loop_start = 1
+        else:
+            loop_start = 0
+        
+        for HUC, AOI_Feature in list(HUC8_AOI_dict.items())[loop_start:]:
+            arcpy.AddMessage("Appending HUC8 {0} AOIs".format(HUC))
+            arcpy.management.Append(AOI_Feature, AOI_Target, "NO_TEST")
+
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### All AOIs Appended #####")
 
