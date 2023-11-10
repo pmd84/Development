@@ -39,6 +39,7 @@ def Check_Source_Data(Tool_Template_Folder):
         arcpy.AddMessage("Tool Template Files folder found")
 
     county_shapefile = os.path.join(Tool_Template_Folder, "FFRMS_Counties.shp")
+    HUC8_shapefile = os.path.join(Tool_Template_Folder, "STARRII_FFRMS_HUC8s_Scope.shp")
 
     if not os.path.exists(county_shapefile):
         arcpy.AddError("No {0} found in Tool Template Files folder. Please manually add {0} to Tool Template Files folder and try again".format(os.path.basename(county_shapefile)))
@@ -46,7 +47,7 @@ def Check_Source_Data(Tool_Template_Folder):
     else:
         arcpy.AddMessage("{0} found".format(os.path.basename(county_shapefile)))
 
-    return county_shapefile
+    return county_shapefile, HUC8_shapefile
 
 def Check_Spatial_Reference(UTM_zone, FIPS_code):
         arcpy.AddMessage(u"\u200B")
@@ -71,17 +72,17 @@ def Check_Spatial_Reference(UTM_zone, FIPS_code):
         
         return UTM_zone, Output_Spatial_Reference, Spatial_Reference_String
 
-def Get_UTM_zone(fips_code):
+def Get_UTM_zone(FIPS_code):
     arcpy.AddMessage("Determining UTM code from API")
 
-    fips_code = fips_code[:5]
+    FIPS_code = FIPS_code[:5]
 
      # ArcGIS REST Endpoint for UTM Boundaries
     endpoint = "https://nrcsgeoservices.sc.egov.usda.gov/arcgis/rest/services/government_units/utm_zone/MapServer/0/query"
 
     # Parameters for the API request
     params = {
-        'where': "FIPS_C ='" + fips_code +  "'",
+        'where': "FIPS_C ='" + FIPS_code +  "'",
         'outFields': 'UTMDESGN',
         'returnGeometry': 'false',
         'f': 'json'
@@ -94,80 +95,23 @@ def Get_UTM_zone(fips_code):
         if 'features' in json_data and len(json_data['features']) > 0 and 'attributes' in json_data['features'][0]:
             utm_designation = json_data['features'][0]['attributes']['UTMDESGN']
             utm_code_str = str(int(utm_designation))+'N'
-            arcpy.AddMessage("UTM designation for county " + fips_code + " is " + utm_code_str)
+            arcpy.AddMessage("UTM designation for county " + FIPS_code + " is " + utm_code_str)
             return utm_code_str
         else:
             raise Exception("Failed to retrieve UTM designation from API")
     else:
         raise Exception("Failed to retrieve UTM designation from API")
     
-def Check_Naming_Convention(Output_Raster_Filename, Spatial_Reference_String):
-    arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Checking Output Raster Naming Convention #####")
-
-    Output_Raster_Filename = os.path.splitext(Output_Raster_Filename)[0]
-    Output_Fileparts = Output_Raster_Filename.split("_")
-
-    #assign variables
-    state = Output_Fileparts[0]
-    fips_code = Output_Fileparts[1]
-    UTM_code = Output_Fileparts[2]
-    freeboard = Output_Fileparts[3]
-    river_or_coast = Output_Fileparts[4]
-    resolution = Output_Fileparts[5]
-    fips_num = fips_code[:5]
-        
-    #Spatial reference string is in form "NAD 1983 BLM Zone 1N (US Feet)", set variable for chosen_zone as "1N"
-    chosen_zone = Spatial_Reference_String.split(" ")[4]
-
-    if freeboard =='0' and river_or_coast == "2PCT":
-        #fix naming convention based on split '0_2PCT' Freeboard
-        freeboard = '0_2PCT'
-        river_or_coast = Output_Fileparts[5]
-        resolution = Output_Fileparts[6]
-
-    error_count = 0
-
-    if len(state) != 2 and state not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-        arcpy.AddWarning("First part of filename must be state abbreviation as two capital letters, i.e. 'NH_33015_19N_00FVA_RIV_03m'")
-        error_count += 1
-
-    if len(fips_code) != 5 and fips_num not in "0123456789":
-        arcpy.AddWarning("Second part of filename must be 5 digit FIPS code without the county designation 'C', i.e. 'NH_33015_19N_00FVA_RIV_03m'")
-        error_count += 1
-
-    if UTM_code != chosen_zone:
-        arcpy.AddWarning("Third part of filename must match UTM Zone in Spatial Reference. Filename shows UTM zone {0} and spatial reference was chosen as {1}".format(UTM_code, chosen_zone))
-        error_count += 1
-
-    if freeboard not in ['00FVA', '01FVA', '02FVA', '03FVA', '0_2PCT' ]:
-        arcpy.AddWarning("Fourth part of filename must be freeboard value in form 00FVA, 01FVA, 02FVA, 03FVA, or 0_2PCT, i.e. 'NH_33015_19N_00FVA_RIV_03m'")
-        error_count += 1
-
-    if river_or_coast not in ['RIV', 'CST']:
-        arcpy.AddWarning("Fifth part of filename must be either RIV or CST in ALL CAPS, i.e. 'NH_33015_19N_00FVA_RIV_03m'")
-        error_count += 1
-
-    if resolution not in ['03m', '10m']:
-        arcpy.AddWarning("Sixth part of filename must be resolution in form 03m or 10m, i.e. 'NH_33015_19N_00FVA_RIV_03m'")
-        error_count += 1
-
-    if error_count > 0:
-        arcpy.AddError("Filename does not match naming convention.  Please rename file and try again.")
-        exit()
-    else:
-        arcpy.AddMessage("File naming convention for output raster {0} is correct".format(Output_Raster_Filename))
-
-def Get_County_Boundary(fips_code, FFRMS_Geodatabase, county_server_shapefile):
+def Get_County_Boundary(FIPS_code, county_server_shapefile):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Getting county boundary data from location on server #####")
 
     #Select county boundary from server shapefile based on the field CO_FIPS and export to new county shapefile
-    fips_code = fips_code[:5]
+    FIPS_code = FIPS_code[:5]
     arcpy.management.MakeFeatureLayer(county_server_shapefile, "county_layer")
 
     arcpy.management.SelectLayerByAttribute(in_layer_or_view="county_layer", selection_type="NEW_SELECTION", 
-                                            where_clause="CO_FIPS = '{0}'".format(fips_code))
+                                            where_clause="CO_FIPS = '{0}'".format(FIPS_code))
     
     county_boundary = r"in_memory\county_boundary"
 
@@ -197,7 +141,7 @@ def Create_Empty_Raster(FFRMS_Geodatabase, Output_Spatial_Reference, Output_File
         arcpy.AddMessage("{0} already exists - overwriting existing raster layer".format(Output_File_Name))
 
     #Set up Temp Raster Name based on Output File Name extension (tif, GRID, etc.)
-    Temp_Raster_Name = "Temp_Raster"
+    Temp_Raster_Name = "Temp_Mosaic_Raster"
     Empty_Raster_Dataset = arcpy.management.CreateRasterDataset(out_path=FFRMS_Geodatabase, out_name=Temp_Raster_Name, 
                                                                  cellsize="3", pixel_type="32_BIT_FLOAT", 
                                                                  raster_spatial_reference=Output_Spatial_Reference, number_of_bands=1, 
@@ -344,16 +288,16 @@ def get_UTM_and_FIPS(FFRMS_Geodatabase):
     with arcpy.da.SearchCursor(S_FFRMS_Proj_Ar, ["PROJ_ZONE", "FIPS"]) as cursor:
         for row in cursor:
             UTM_zone = row[0]
-            FIPS_CODE = row[1][:5]
+            FIPS_code = row[1][:5]
             break
         
     if 'N' not in UTM_zone:
         UTM_zone = UTM_zone + "N"
 
     arcpy.AddMessage("UTM Zone found: {0}".format(UTM_zone))
-    arcpy.AddMessage("FIPS Code found: {0}".format(FIPS_CODE))
+    arcpy.AddMessage("FIPS Code found: {0}".format(FIPS_code))
 
-    return UTM_zone, FIPS_CODE
+    return UTM_zone, FIPS_code
 
 def Create_Tool_Output_Folder_Dictionary(Tool_Output_Folders):
     arcpy.AddMessage(u"\u200B")
@@ -363,7 +307,7 @@ def Create_Tool_Output_Folder_Dictionary(Tool_Output_Folders):
     for tool_folder in Tool_Output_Folders:
         
         #Run check of first 8 characters - must be numeric 8 digit HUC8 number
-        HUC8 = check_HUC8_naming_convention(tool_folder, "First")
+        HUC8 = check_HUC8_naming_convention(tool_folder, "First", "Tool Output Folder")
         arcpy.AddMessage("Tool Output Folder {0} is named correctly".format(tool_folder))
 
         #Add HUC8 and tool folder location to dictionary
@@ -371,17 +315,19 @@ def Create_Tool_Output_Folder_Dictionary(Tool_Output_Folders):
 
     return HUC8_tool_folder_dict
 
-def check_HUC8_naming_convention(file_or_folder, first_last):
+def check_HUC8_naming_convention(file_or_folder, first_last, type):
     if first_last == "First":
         HUC8 = os.path.basename(file_or_folder)[:8]
     elif first_last == "Last":
         HUC8 = os.path.basename(file_or_folder)[-8:]
+        if HUC8[-4:] == ".gdb":
+            HUC8 = os.path.basename(file_or_folder)[-12:-4]
     #if any characters are not alphanumeric, raise error
     for num in HUC8:
         if num not in "0123456789":
-            arcpy.AddError("Tool Output Folder {0} is not named correctly.".format(file_or_folder))
-            arcpy.AddError("{0} 8 characters of output folder name MUST be HUC8 number. {0} 8 are {1}".format(first_last, HUC8))
-            arcpy.AddError("Please rename {0} 8 characters of tool output folder to HUC8 number and try again".format(first_last)))
+            arcpy.AddWarning("{0} {1} is not named correctly.".format(type, os.path.basename(file_or_folder)))
+            arcpy.AddError("{0} 8 characters of {1} name MUST be HUC8 number. {0} 8 are '{2}'".format(first_last, type, HUC8))
+            arcpy.AddError("Please rename {0} 8 characters of {1} to HUC8 number and try again".format(first_last, type))
             sys.exit()
     
     return HUC8
@@ -393,7 +339,7 @@ def Create_AOI_and_Erase_Area_Dictionaries(HUC_Erase_Area_gdbs):
     HUC8_erase_area_dict, HUC8_AOI_dict = {}, {}
     for gdb in HUC_Erase_Area_gdbs:
         gdb_name = os.path.basename(gdb)
-        HUC8 = check_HUC8_naming_convention(gdb, "Last")
+        HUC8 = check_HUC8_naming_convention(gdb, "Last", "AOI Erase Area Geodatabase")
         arcpy.AddMessage("AOI_Erase_Areas geodatabase {0} is named correctly".format(gdb_name))
 
         #Check for existence of Erase Areas and AOI feature classes
@@ -401,18 +347,38 @@ def Create_AOI_and_Erase_Area_Dictionaries(HUC_Erase_Area_gdbs):
         AOI_Feature = os.path.join(gdb, "FFRMS_Spatial_Layers", "S_AOI_Ar_{0}".format(HUC8))
 
         if not arcpy.Exists(Erase_Area_Feature):
-            arcpy.AddError("Feature 'Erase_Areas_{0}' does not exist in {1}. Please rename Erase Areas to 'Erase_Areas_{0}' and try again".format(HUC8, gdb_name))
-            sys.exit()
+            arcpy.env.workspace = gdb
+            features = arcpy.ListFeatureClasses()
+            for feature in features:
+                if "Erase_Areas" in feature:
+                    Erase_Area_Feature = os.path.join(gdb, feature)
+                    break 
+            if Erase_Area_Feature == None:        
+                #arcpy.AddError("Feature 'Erase_Areas_{0}' does not exist in {1}. Please rename Erase Areas to 'Erase_Areas_{0}' and try again".format(HUC8, gdb_name))
+                arcpy.AddError("'Erase_Areas' does not exist in {0}. Please add Erase Areas to geodatabase and try again".format(gdb_name))
+                sys.exit()
+        else:
+            arcpy.AddMessage("Found {0} in {1}".format(os.path.basename(Erase_Area_Feature), gdb_name))
         
         if not arcpy.Exists(AOI_Feature):
-            arcpy.AddError("Feature 'S_AOI_Ar_{0}' does not exist in FFRMS_Spatial_Layers of {1}. Please rename AOI to 'S_AOI_Ar_{0}' within FFRMS_Spatial_Layers and try again".format(HUC8, gdb_name))
-            sys.exit()
+            arcpy.env.workspace = os.path.join(gdb, "FFRMS_Spatial_Layers")
+            features = arcpy.ListFeatureClasses()
+            for feature in features:
+                if "S_AOI_Ar" in feature:
+                    AOI_Feature = os.path.join(gdb, "FFRMS_Spatial_Layers", feature)
+                    arcpy.AddMessage("Found {0} in {1}".format(os.path.basename(AOI_Feature), gdb_name))
+                    break
+            if AOI_Feature == None:
+                arcpy.AddError("'S_AOI_Ar' does not exist in {0}. Please add AOI to geodatabase and try again".format(gdb_name))
+                sys.exit()
+        else:
+            arcpy.AddMessage("Found {0} in {1}".format(os.path.basename(AOI_Feature), gdb_name))
 
         #Add to dictionary
         HUC8_erase_area_dict[HUC8] = Erase_Area_Feature
         HUC8_AOI_dict[HUC8] = AOI_Feature
 
-        return HUC8_erase_area_dict, HUC8_AOI_dict
+    return HUC8_erase_area_dict, HUC8_AOI_dict
 
 def Check_Erase_Areas(HUC8_erase_area_dict):
     arcpy.AddMessage(u"\u200B")
@@ -430,7 +396,9 @@ def Check_Erase_Areas(HUC8_erase_area_dict):
                     sys.exit()
                 
                 #Make sure lower FVAs are true if higher FVAs are true - ignoring 0_2PCT
-                if row[5] == "T":
+                if row[1] == "T":
+                    row[2] = row[3] = row[4] = row[5] = row[6] = "T"
+                elif row[5] == "T":
                     row[2] =row[3] = row[4] = "T"
                 elif row[4] == "T":
                     row[2] = row[3] = "T"
@@ -441,6 +409,129 @@ def Check_Erase_Areas(HUC8_erase_area_dict):
         arcpy.AddMessage("Erase Areas are formatted properly")
     return
 
+def find_and_process_rasters_in_folder(folder, raster_name, FVA, HUC8_erase_area_dict, HUC8_shapefile, Clip_By_HUC8, county_boundary):
+            
+    #Find tool output rasters:
+    HUC8_raster_list = []
+    raster_num = 0
+    for tool_folder in Tool_Output_Folders:
+        tool_folder = tool_folder.replace("'","") #Fixes One-Drive folder naming 
+
+        #Check for extra subfolder level - can be caused by unzipping to folder with same name
+        for folder in os.listdir(tool_folder):
+            if os.path.basename(folder) == os.path.basename(tool_folder):
+                tool_folder = os.path.join(tool_folder, os.path.basename(folder))
+
+        #Get HUC8 from folder name
+        HUC8 = os.path.basename(tool_folder)[:8]
+        arcpy.AddMessage("## Processing HUC8 {0} ##".format(HUC8))
+        
+        #look for raster based on FVA
+        raster_path = None
+        for file in os.listdir(tool_folder):
+            if raster_name in file: 
+                if file.endswith(".tif") or file.endswith(".tiff"):
+                    raster_path = os.path.join(tool_folder, file)
+                    arcpy.AddMessage("Found {0} raster in {1}".format(raster_name, tool_folder))
+                    break
+
+        if raster_path == None:
+            arcpy.AddMessage("No {0} raster found in {1}".format(raster_name, tool_folder))
+            continue
+
+        #Erase Raster based on Erase_Area
+        try:
+            Erase_Area_Feature = HUC8_erase_area_dict[HUC8]
+
+            #Create feature where FVA field is equal to 'T'        
+            field_name1 = "Erase_" + FVA
+            field_name2 = "Erase_All_FVAs"
+            query = "{0} = 'T' OR {1} = 'T'".format(field_name1, field_name2)
+            arcpy.management.MakeFeatureLayer(Erase_Area_Feature, "Erase_Area_subset", query)
+
+            #! Test with no T values
+
+            arcpy.AddMessage("Erasing {0} raster based on Erase_Area".format(raster_name))
+            erase = True
+        except:
+            arcpy.AddMessage("No Erase_Area feature given for HUC8 {0}".format(HUC8))
+            erase = False
+
+        #if Clip_By_HUC8 is true, create feature for HUC8 boundary by querying 'huc8' field
+        # Mask_boundary = "in_memory/Mask_boundary"
+        # if Clip_By_HUC8 == "Yes":
+        #     arcpy.management.MakeFeatureLayer(HUC8_shapefile, "HUC8_Boundary", "huc8 = '{0}'".format(HUC8))
+        #     arcpy.analysis.Clip("HUC8_Boundary",county_shapefile,Mask_boundary)
+        #     arcpy.AddMessage("Clipping {0} raster to HUC8 and county boundary {1}".format(raster_name, HUC8))
+        # else:
+        #     arcpy.AddMessage("Clipping {0} raster to county boundary".format(raster_name))
+        #     arcpy.management.CopyFeatures(county_boundary, Mask_boundary)
+
+        #Create mask (used later for extracting raster) using Mask_boundary and Erase_Area_subset
+        
+        arcpy.AddMessage("Creating mask")
+        Mask_boundary = county_boundary
+
+        if not erase:
+            #Dont add erase areas
+            clip_mask = Mask_boundary
+        else:
+            #add erase areas to clip mask
+            clip_mask = r"in_memory/clip_mask"
+            try:
+                arcpy.analysis.Erase(in_features=Mask_boundary, erase_features="Erase_Area_subset", out_feature_class=clip_mask)
+            except:
+                #if erase doesn't work, use Erase_without_tool function
+                Erase_without_tool(Mask_boundary, "Erase_Area_subset", clip_mask)
+
+        #Extract raster by mask
+        inRaster = raster_path
+        inMaskData = clip_mask
+        extraction_area = "INSIDE"
+
+        # Execute ExtractByMask
+        arcpy.AddMessage("Extracting HUC8 {0} Raster using mask".format(HUC8))
+        try:
+            outExtractByMask = ExtractByMask(inRaster, inMaskData, extraction_area)
+        except:
+            outExtractByMask = ExtractByMask(inRaster, inMaskData)
+        
+        #save temp raster
+        temp_raster_path = os.path.join(FFRMS_Geodatabase, "Temp_HUC8_Raster_{0}".format(raster_num))
+        arcpy.management.CopyRaster(outExtractByMask, temp_raster_path)
+        raster_num += 1
+
+        HUC8_raster_list.append(temp_raster_path)
+    return HUC8_raster_list
+
+def Determine_FVAs_To_Process(FVAs):
+    FVAs_to_process = []
+    All_FVAs = ["00FVA", "01FVA", "02FVA", "03FVA", "0_2PCT"]
+    for FVA in FVAs:
+        if FVA == "All_Available_FVAs":
+            FVAs_to_process = All_FVAs
+            break
+        else:
+            FVAs_to_process.append(FVA)
+    
+    raster_dict = {}
+    raster_dict["00FVA"] = "wsel_grid_0"
+    raster_dict["01FVA"] = "wsel_grid_1"
+    raster_dict["02FVA"] = "wsel_grid_2"
+    raster_dict["03FVA"] = "wsel_grid_3"
+    raster_dict["0_2PCT"] = "wsel_grid_02_pct_0"
+
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Tool will process the following FVAs: {0} #####".format(FVAs_to_process))
+    return FVAs_to_process, raster_dict
+
+def get_name_parts(FFRMS_Geodatabase):
+    Geodatabase_name_parts = FFRMS_Geodatabase.split("_")
+    riv_or_cst = Geodatabase_name_parts[-1][:3]
+    state_abrv = Geodatabase_name_parts[-3]
+    county_all_caps = " ".join(Geodatabase_name_parts[:-3])
+    return riv_or_cst, state_abrv, county_all_caps
+    
 if __name__ == '__main__':
 
     # Gather Parameter inputs from tool
@@ -452,20 +543,22 @@ if __name__ == '__main__':
 
     Output_Folder = os.path.dirname(FFRMS_Geodatabase)
 
-    #* Alert user if any Erase_Areas features have no “True” values.
-    #* Erases all FVAs below a “True” value in Erase Areas (i.e., will erase FVA00 and FVA01 if FVA02 is True)
-    # TODO: Accommodates output naming convention for Atkins/Dewberry HANDy tool, (i.e., rasters with “.tiff” extension). Tool will still find all Stantec outputs as they currently are.
+    #* DONE: Alert user if any Erase_Areas features have no “True” values.
+    #* DONE Erases all FVAs below a “True” value in Erase Areas (i.e., will erase FVA00 and FVA01 if FVA02 is True)
+    #* DONE: Accommodates output naming convention for Atkins/Dewberry HANDy tool, (i.e., rasters with “.tiff” extension). Tool will still find all Stantec outputs as they currently are.
     # TODO: Erases Areas by HUC8, rather than county-wide
     # TODO: Appends AOIs from the HUC8-level database into the county-wide database (people had to manually do this last month)
 
     #Environment settings
     arcpy.env.workspace = FFRMS_Geodatabase
     arcpy.env.overwriteOutput = True
+    arcpy.env.compression = "LZW"
 
     #Check tool output folder naming
     HUC8_tool_folder_dict = Create_Tool_Output_Folder_Dictionary(Tool_Output_Folders)
     
     #Check that Erase Areas have at least one True value for each feature
+
     HUC8_erase_area_dict, HUC8_AOI_dict = Create_AOI_and_Erase_Area_Dictionaries(HUC_Erase_Area_gdbs)
 
     #Create pixel type dictionary for naming purposes when checking raster pixel depth
@@ -486,72 +579,36 @@ if __name__ == '__main__':
         13: "32_BIT_COMPLEX",
         14: "64_BIT_COMPLEX"}   
     
-    #Get state abbreviation from geodatabase name
-    Geodatabase_name_parts = FFRMS_Geodatabase.split("_")
-    riv_or_cst = Geodatabase_name_parts[-1][:3]
-    state_abrv = Geodatabase_name_parts[-3]
-    county_all_caps = " ".join(Geodatabase_name_parts[:-3])
+    #Get state, county, and riv/cst from geodatabase name    
+    riv_or_cst, state_abrv, county_all_caps = get_name_parts(FFRMS_Geodatabase)
 
     #Get UTM code and FIPS code from S_FFRMS_Proj_Ar
     UTM_zone, FIPS_code = get_UTM_and_FIPS(FFRMS_Geodatabase)
 
-    #Determine UTM Spatial Reference based on FIPS code, if not given manually
+    #Determine Spatial Reference
     UTM_zone, Output_Spatial_Reference, Spatial_Reference_String = Check_Spatial_Reference(UTM_zone, FIPS_code)
 
-    #Check if county shapefile is provided, if not use default
-    county_shapefile = Check_Source_Data(Tool_Template_Folder)
+    #Check for county boundary
+    county_shapefile, HUC8_shapefile = Check_Source_Data(Tool_Template_Folder)
 
     #Create County Boundary shapefile
-    County_Boundary = Get_County_Boundary(FIPS_code, FFRMS_Geodatabase, county_shapefile)
-
-    #Determine which FVAs to process
-    FVAs_to_process = []
-    All_FVAs = ["00FVA", "01FVA", "02FVA", "03FVA", "0_2PCT"]
-    for FVA in FVAs:
-        if FVA == "All_Available_FVAs":
-            FVAs_to_process = All_FVAs
-            break
-        else:
-            FVAs_to_process.append(FVA)
+    County_Boundary = Get_County_Boundary(FIPS_code, county_shapefile)
     
-    raster_dict = {}
-    raster_dict["00FVA"] = "wsel_grid_0.tif"
-    raster_dict["01FVA"] = "wsel_grid_1.tif"
-    raster_dict["02FVA"] = "wsel_grid_2.tif"
-    raster_dict["03FVA"] = "wsel_grid_3.tif"
-    raster_dict["0_2PCT"] = "wsel_grid_02_pct_0.tif"
-
-    arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Tool will process the following FVAs: {0} #####".format(FVAs_to_process))
+    #Determine which FVAs to process    
+    FVAs_to_process, raster_dict = Determine_FVAs_To_Process(FVAs)
     
     #loop through FVAs, create raster name, and process
     for FVA in FVAs_to_process:
         arcpy.AddMessage(u"\u200B")
         arcpy.AddMessage("##### Processing Rasters for {0} #####".format(FVA))
 
+        #Set Output Mosaiced Raster path
         Output_Raster_Filename = "{0}_{1}_{2}_{3}_{4}_{5}m".format(state_abrv, FIPS_code, UTM_zone, FVA, riv_or_cst, "03")
         Output_Raster = os.path.join(FFRMS_Geodatabase, Output_Raster_Filename)
-
-        #Find tool output rasters:
-        Input_rasters = []
-        for tool_folder in Tool_Output_Folders:
-            tool_folder = tool_folder.replace("'","") #Fixes One-Drive folder naming 
-
-            #Check for extra subfolder level - can be caused by unzipping to folder with same name
-            for folder in os.listdir(tool_folder):
-                if os.path.basename(folder) == os.path.basename(tool_folder):
-                    tool_folder = os.path.join(tool_folder, os.path.basename(folder))
-
-            #look for raster based on FVA
-            raster_name = raster_dict[FVA]
-            raster_path = os.path.join(tool_folder, raster_name)
-
-            if os.path.exists(raster_path):
-                arcpy.AddMessage("Found {0} raster in folder {1}".format(FVA, tool_folder))
-                Input_rasters.append(raster_path)
-            else:
-                arcpy.AddWarning("No {0} raster found in folder {1}".format(FVA, tool_folder))
         
+        #Check for existence of HANDy Rasters
+        handy_raster_name = raster_dict[FVA]
+        Input_rasters = find_and_process_rasters_in_folder(Tool_Output_Folders, handy_raster_name, FVA, HUC8_erase_area_dict, HUC8_shapefile, County_Boundary)
         if Input_rasters == []:
             arcpy.AddMessage("No {0} rasters found in any of the tool output folders. Moving on to next raster".format(FVA))
             continue
@@ -565,12 +622,14 @@ if __name__ == '__main__':
         #Round Raster to 10th of a foot
         Output_Mosaic_Dataset_rounded = Round_Raster(Output_Mosaic_Dataset, pixel_type_dict)
 
-        #Clip Raster to County Boundary and delete area if requested
-        Erase_Areas_and_Clip_To_County_Boundary(Erase_Areas, County_Boundary, Output_Raster, Output_Mosaic_Dataset_rounded)
+        #Save raster to Output Raster name
+        arcpy.AddMessage("Saving Raster")
+        arcpy.management.CopyRaster(Output_Mosaic_Dataset_rounded, Output_Raster)
 
         #Delete Temp Files
-        arcpy.AddMessage("Deleting Temporary Files")
-        arcpy.management.Delete(Empty_Raster_Dataset)
+        arcpy.AddMessage("Deleting Temporary HUC8 Rasters")
+        for file in Input_rasters:
+            arcpy.management.Delete(file)
     
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### All FVA Rasters Processed Complete #####")
