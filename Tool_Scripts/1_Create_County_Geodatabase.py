@@ -126,7 +126,6 @@ def Set_Spatial_Reference(UTM_zone, FIPS_code):
         arcpy.AddMessage("Setting spatial reference for Guam using projection file")
         Spatial_Reference_String = "NAD 1983 (MA11) UTM Zone 55N"
         vertical_datum = "Guam Vertical Datum of 2004"
-
         Spatial_Reference_file = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\projection_files\Guam.prj"
         
         Output_Spatial_Reference = arcpy.SpatialReference(Spatial_Reference_file)

@@ -14,7 +14,33 @@ import json
 import requests
 from arcpy import env
 from arcpy.sa import *
+
+def Check_Source_Data(Tool_Template_Folder):
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Checking Source Data in Tool Template Files Folder #####")
     
+    if Tool_Template_Folder == "" or Tool_Template_Folder == None:
+            Tool_Template_Folder = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\tools\Tool_Template_Files"
+            arcpy.AddMessage("No Tool Template Files location provided, using location on Stantec Server: {0}".format(Tool_Template_Folder))
+        
+    #Check to see if Tool_Template_Folder exists
+    if not os.path.exists(Tool_Template_Folder):
+        arcpy.AddError("Tool Template Files folder does not exist at provided lcoation Stantec Server. Please manually provide path to Tool Template Files folder and try again")
+        sys.exit()
+    else:
+        arcpy.AddMessage("Tool Template Files folder found")
+
+    NFHL_data = os.path.join(Tool_Template_Folder, "rFHL_20230630.gdb")
+
+    #Check or existence of template data
+    if not os.path.exists(NFHL_data):
+        arcpy.AddError("No NFHL data found in Tool Template Files folder. Please manually add rFHL database to Tool Template Files folder and try again".format(os.path.basename(NFHL_data)))
+        sys.exit()
+    else:
+        arcpy.AddMessage("{0} found".format(os.path.basename(NFHL_data)))
+
+    return NFHL_data
+
 def Convert_Rasters_to_Polygon(FFRMS_Geodatabase):
     # 1.    Find the FVA0 and FVA03 raster in the geodatabase
     # 2.	turn float grid to Integer (INT tool)
@@ -287,7 +313,7 @@ def find_QC_point_files(tool_folder, HUC8):
                 qc_points_shapefiles_02.append(os.path.join(root, file))
             elif file.endswith(".shp") and not "02" in file:
                 qc_points_shapefiles_01.append(os.path.join(root, file))
-                
+
     #Print list of 01 and 0_2 shapefiles found in each folder
     shapefiles_01_list = [os.path.basename(shapefile) for shapefile in qc_points_shapefiles_01]
     shapefiles_02_list = [os.path.basename(shapefile) for shapefile in qc_points_shapefiles_02]
@@ -298,6 +324,7 @@ def find_QC_point_files(tool_folder, HUC8):
 
 def Append_QC_points_to_S_Raster_Copies(qc_points_shapefiles_02, qc_points_shapefiles_01, S_Raster_copy_02, S_Raster_copy_01, HUC8):
     for i, shapefile_list in enumerate([qc_points_shapefiles_02, qc_points_shapefiles_01]):
+        #Appends both 0_2PC and 01 qc points together, naming them respectively
 
         for qc_points in shapefile_list:
             #check that shapefile exists
@@ -315,7 +342,8 @@ def Append_QC_points_to_S_Raster_Copies(qc_points_shapefiles_02, qc_points_shape
             field_names = [field.name for field in fields] 
             if "a_WTR_NM" in field_names:
                 arcpy.management.AlterField(qc_points_layer, "a_WTR_NM", "WTR_NM")
-            arcpy.management.AlterField(qc_points_layer, "wsel_diff", "ELEV_DIFF") 
+            arcpy.management.AlterField(qc_points_layer, "wsel_diff", "ELEV_DIFF")
+            arcpy.management.AlterField(qc_points_layer, "wsel_grid", "FVA_PLUS_0")
 
             #Append to specific copy of S_Raster_QC_pt
             if i == 0:
@@ -404,13 +432,98 @@ def get_FIPS(FFRMS_Geodatabase):
 
     return FIPS_code
 
+def find_CL_01_QC_point_files(tool_folder):
+    #set folder and shapefiles locations
+    
+    tool_folder = tool_folder.replace("'","") #Fixes One-Drive folder naming 
+
+    #In case folder is neste4d
+    for folder in os.listdir(tool_folder):
+        if os.path.basename(folder) == os.path.basename(tool_folder):
+            tool_folder = os.path.join(tool_folder, os.path.basename(folder))
+
+    qc_folder = os.path.join(tool_folder, "qc_points")
+    if not os.path.exists(qc_folder):
+        arcpy.AddWarning("Could not find qc_points folder in tool output folder: {0}".format(tool_folder))
+        return None
+    
+    cl_01_points_file = os.path.join(qc_folder,"qc_points_cl.shp")
+    if not os.path.exists(cl_01_points_file):
+        arcpy.AddWarning("Could not find qc_points_cl.shp in qc_points folder: {0}".format(qc_folder))
+        return None
+    else:
+        arcpy.AddMessage("Found qc_points_cl.shp")
+        return cl_01_points_file
+
+def loop_through_tool_folders_for_cl_01_points_shapefiles(Tool_Output_Folders):
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Finding CL QC Point Shapefiles within tool folders #####")
+
+    cl_01_points_shapefiles_list = []
+
+    for tool_folder in Tool_Output_Folders:
+        
+        tool_folder = tool_folder.replace("'","") #Fixes One-Drive folder naming 
+
+        HUC8 = os.path.basename(tool_folder)
+        arcpy.AddMessage("HUC {0}".format(HUC8))
+        
+        #Search tool folder for shapefile
+        cl_01_points_shapefile = find_CL_01_QC_point_files(tool_folder)
+
+        #If shapefile is found, add to list
+        if cl_01_points_shapefile is not None:
+            cl_01_points_shapefiles_list.append(cl_01_points_shapefile)
+
+    #Merge all cl_01_points_shapefiles into one
+    arcpy.AddMessage("Merging all handy centerline qc points")
+    centerline_qc_points = os.path.join("in_memory", "all_handy_centerline_qc_points")
+    arcpy.management.Merge(cl_01_points_shapefiles_list, centerline_qc_points)
+
+    return centerline_qc_points
+
+def Check_QC_Pass_Rate(centerline_qc_points_NFHL):
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Assessing QC Point pass rate #####")
+
+    num_handy_qc_points_failed = 0
+    total_qc_points = 0
+
+    with arcpy.da.SearchCursor(centerline_qc_points_NFHL, ["wsel_diff"]) as cursor:
+        for row in cursor:
+            if row[0] > 0.5:
+                num_handy_qc_points_failed += 1
+            total_qc_points += 1
+    
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("## HANDY QC STATS ##")
+
+    num_passed_qc_points = total_qc_points - num_handy_qc_points_failed
+    percent_failed = round((num_handy_qc_points_failed / total_qc_points) * 100, 2)
+    percent_passed = round(100 - percent_failed, 2)
+    arcpy.AddMessage("Number of QC points: {0}".format(total_qc_points))
+    arcpy.AddMessage("Number of QC points passed based on HANDy qc values (ELEV_DIFF < 0.5): {0}".format(num_passed_qc_points))
+    arcpy.AddMessage("Percent QC points passed based on HANDy qc values: {0}%".format(percent_passed))
+
+    if percent_failed > 10:
+        arcpy.AddWarning("QC Point pass rate is less than 90% - FVA Rasters do not meet FFRMS passing criteria")
+    else:
+        arcpy.AddMessage("QC Point pass rate is greater than 90% - raster quality is acceptable")
+
+def get_county_info(FFRMS_Geodatabase):
+    arcpy.AddMessage("Using S_FFRMS_Proj_Ar for county boundary")
+    S_FFRMS_Proj_Ar = os.path.join(FFRMS_Geodatabase,"FFRMS_Spatial_Layers", "S_FFRMS_Proj_Ar")
+    county_boundary = S_FFRMS_Proj_Ar
+    county_name = arcpy.SearchCursor(S_FFRMS_Proj_Ar).next().getValue("POL_NAME1")
+    return S_FFRMS_Proj_Ar, county_boundary, county_name
+    
 if __name__ == "__main__":
 
     # TODO: ADD/Calculate new fields in QC Points
     
     FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
     Tool_Output_Folders = arcpy.GetParameterAsText(1).split(";")
-    NFHL_data = arcpy.GetParameterAsText(2)
+    Tool_Template_Folder = arcpy.GetParameterAsText(2)
 
     arcpy.env.workspace = FFRMS_Geodatabase
     arcpy.env.overwriteOutput = True
@@ -420,20 +533,9 @@ if __name__ == "__main__":
     State_code = FIPS_code[:2]
     County_code = FIPS_code[2:5]
 
-    arcpy.AddMessage("Using S_FFRMS_Proj_Ar for county boundary")
-    S_FFRMS_Proj_Ar = os.path.join(FFRMS_Geodatabase,"FFRMS_Spatial_Layers", "S_FFRMS_Proj_Ar")
-    county_boundary = S_FFRMS_Proj_Ar
-    county_name = arcpy.SearchCursor(S_FFRMS_Proj_Ar).next().getValue("POL_NAME1")
+    S_FFRMS_Proj_Ar, county_boundary, county_name = get_county_info(FFRMS_Geodatabase)
 
-    if NFHL_data == "" or NFHL_data == None:
-        NFHL_data = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\NFHL\rFHL_20230630.gdb"
-        arcpy.AddMessage("No NFHL Zone 3 database provided - using NFHL Zone 3 data on Stantec Server: {0}".format(NFHL_data))
-    else:
-        arcpy.AddMessage("Using provided NFHL data: {0}".format(NFHL_data))
-
-    if not arcpy.Exists(NFHL_data):
-        arcpy.AddError("No NFHL data found.  Please provide valid NFHL data and try again".format(NFHL_data))
-        sys.exit()
+    NFHL_data = Check_Source_Data(Tool_Template_Folder)
 
     FV00_polygon, FV03_polygon = Convert_Rasters_to_Polygon(FFRMS_Geodatabase)
 
@@ -446,5 +548,8 @@ if __name__ == "__main__":
     Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, FIPS_code)
 
     S_Raster_QC_pt = Populate_S_Raster_QC_pt(FFRMS_Geodatabase, NFHL_data, Tool_Output_Folders, county_boundary, FIPS_code, county_name)
+    
     #Check_QC_Pass_Rate(S_Raster_QC_pt)
+    centerline_qc_points = loop_through_tool_folders_for_cl_01_points_shapefiles(Tool_Output_Folders)
+
 

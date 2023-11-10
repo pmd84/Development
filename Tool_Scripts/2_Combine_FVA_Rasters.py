@@ -432,11 +432,11 @@ def find_and_process_rasters_in_folder(folder, raster_name, FVA, HUC8_erase_area
             if raster_name in file: 
                 if file.endswith(".tif") or file.endswith(".tiff"):
                     raster_path = os.path.join(tool_folder, file)
-                    arcpy.AddMessage("Found {0} raster in {1}".format(raster_name, tool_folder))
+                    arcpy.AddMessage("Found {0} raster in {1}".format(raster_name, os.path.basename(tool_folder)))
                     break
 
         if raster_path == None:
-            arcpy.AddMessage("No {0} raster found in {1}".format(raster_name, tool_folder))
+            arcpy.AddMessage("No {0} raster found in {1}".format(raster_name, os.path.basename(tool_folder)))
             continue
 
         #Erase Raster based on Erase_Area
@@ -539,8 +539,9 @@ if __name__ == '__main__':
     HUC_Erase_Area_gdbs = arcpy.GetParameterAsText(1).split(";")
     FFRMS_Geodatabase = arcpy.GetParameterAsText(2)
     FVAs = arcpy.GetParameterAsText(3).split(";")
-    Tool_Template_Folder = arcpy.GetParameterAsText(4)
-
+    Append_AOI_Areas = arcpy.GetParameterAsText(4)
+    Tool_Template_Folder = arcpy.GetParameterAsText(5)
+    
     #Environment settings
     arcpy.env.workspace = FFRMS_Geodatabase
     arcpy.env.overwriteOutput = True
@@ -628,29 +629,30 @@ if __name__ == '__main__':
     arcpy.AddMessage("##### All FVA Rasters Processed #####")
 
     #Append all AOIs
-    arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Appending AOIs to County Geodatabase S_AOI_Ar #####")
+    if Append_AOI_Areas == "Yes":
+        arcpy.AddMessage(u"\u200B")
+        arcpy.AddMessage("##### Appending AOIs to County Geodatabase S_AOI_Ar #####")
 
-    AOI_Target = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers", "S_AOI_Ar")
+        AOI_Target = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers", "S_AOI_Ar")
 
-    #If there no items in the HUC8_AOI_dict, then there are no AOIs to append
-    if len(HUC8_AOI_dict) == 0:
-        arcpy.AddMessage("No AOIs to append")
-    else:
-        #Make sure geodtabase has S_AOI_Target feature class
-        if not arcpy.Exists(AOI_Target):
-            arcpy.AddWarning("No S_AOI_Ar found in county geodatabase. Creating feature from first HUC8 AOI provided")
-            #copy first AOI to AOI_Target
-            first_AOI = list(HUC8_AOI_dict.values())[0]
-            arcpy.management.CopyFeatures(first_AOI, AOI_Target)
-            loop_start = 1
+        #If there no items in the HUC8_AOI_dict, then there are no AOIs to append
+        if len(HUC8_AOI_dict) == 0:
+            arcpy.AddMessage("No AOIs to append")
         else:
-            loop_start = 0
-        
-        for HUC, AOI_Feature in list(HUC8_AOI_dict.items())[loop_start:]:
-            arcpy.AddMessage("Appending HUC8 {0} AOIs".format(HUC))
-            arcpy.management.Append(AOI_Feature, AOI_Target, "NO_TEST")
+            #Make sure geodtabase has S_AOI_Target feature class
+            if not arcpy.Exists(AOI_Target):
+                arcpy.AddWarning("No S_AOI_Ar found in county geodatabase. Creating feature from first HUC8 AOI provided")
+                #copy first AOI to AOI_Target
+                first_AOI = list(HUC8_AOI_dict.values())[0]
+                arcpy.management.CopyFeatures(first_AOI, AOI_Target)
+                loop_start = 1
+            else:
+                loop_start = 0
+            
+            for HUC, AOI_Feature in list(HUC8_AOI_dict.items())[loop_start:]:
+                arcpy.AddMessage("Appending HUC8 {0} AOIs".format(HUC))
+                arcpy.management.Append(AOI_Feature, AOI_Target, "NO_TEST")
 
-    arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### All AOIs Appended #####")
+        arcpy.AddMessage(u"\u200B")
+        arcpy.AddMessage("##### All AOIs Appended #####")
 
