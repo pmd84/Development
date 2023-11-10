@@ -281,16 +281,14 @@ def Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, 
                 row[4] = "NP"
             cursor.updateRow(row)
 
-def Create_S_Raster_QC_Copies(S_Raster_QC_pt):
+def Create_S_Raster_QC_Copy(S_Raster_QC_pt):
     #create temporary copys of S_Raster_QC_pt for 01 and 02 in memory
-    S_Raster_copy_02 = r"in_memory/S_Raster_copy_02"
-    S_Raster_copy_01 = r"in_memory/S_Raster_copy_01"
+
     S_Raster_copy_all = r"in_memory/S_Raster_copy_all"
 
-    for S_Raster_copy_file in [S_Raster_copy_02, S_Raster_copy_01, S_Raster_copy_all]:
-        arcpy.management.CopyFeatures(S_Raster_QC_pt, S_Raster_copy_file)
+    arcpy.management.CopyFeatures(S_Raster_QC_pt, S_Raster_copy_all)
     
-    return S_Raster_copy_02, S_Raster_copy_01, S_Raster_copy_all
+    return S_Raster_copy_all
 
 def find_QC_point_files(tool_folder, HUC8):
     #set folder and shapefiles locations
@@ -304,84 +302,89 @@ def find_QC_point_files(tool_folder, HUC8):
     qc_folder = os.path.join(tool_folder, "qc_points")
     arcpy.AddMessage("## Compiling QC points from folder: {0} ##".format(HUC8))
 
-    #Create a list of 01 and 02 qc shapefiles to process
-    qc_points_shapefiles_02 = []
+    #Create a list of 01 qc shapefiles to process
     qc_points_shapefiles_01 = []
-    for root, dirs, files in os.walk(qc_folder):
-        for file in files:
-            if file.endswith(".shp") and "02" in file:
-                qc_points_shapefiles_02.append(os.path.join(root, file))
-            elif file.endswith(".shp") and not "02" in file:
-                qc_points_shapefiles_01.append(os.path.join(root, file))
+    qc_points_cl = os.path.join(qc_folder, "qc_points_cl.shp")
+    dense_qc_points = os.path.join(qc_folder, "dense_qc_points.shp")
+    
+    #Files should exist as-is, but will search through directory if not
+    if not os.path.exists(qc_points_cl) or not os.path.exists(dense_qc_points):
+        arcpy.AddWarning("Could not find qc_points_cl.shp or dense_qc_points.shp in qc_points folder: {0}".format(qc_folder))
 
-    #Print list of 01 and 0_2 shapefiles found in each folder
+        #Files didn't exist - loop through and get non 0_2pct shapefiles
+        for root, dirs, files in os.walk(qc_folder):
+            for file in files:
+                if file.endswith(".shp") and not "02" in file:
+                    arcpy.AddMessage("Adding {0} to list of qc_points".format(file))
+                    qc_points_shapefiles_01.append(os.path.join(root, file))
+    else:
+        if os.path.exists(qc_points_cl):
+            qc_points_shapefiles_01.append(qc_points_cl)
+        if os.path.exists(dense_qc_points):
+            qc_points_shapefiles_01.append(dense_qc_points)
+
+    #Print list of 01 shapefiles found in each folder
     shapefiles_01_list = [os.path.basename(shapefile) for shapefile in qc_points_shapefiles_01]
-    shapefiles_02_list = [os.path.basename(shapefile) for shapefile in qc_points_shapefiles_02]
     arcpy.AddMessage("01PCT QC point shapefiles: {0}".format(shapefiles_01_list))
-    arcpy.AddMessage("0_2PCT QC point shapefiles: {0}".format(shapefiles_02_list))
 
-    return qc_points_shapefiles_02, qc_points_shapefiles_01
+    return qc_points_shapefiles_01
 
-def Append_QC_points_to_S_Raster_Copies(qc_points_shapefiles_02, qc_points_shapefiles_01, S_Raster_copy_02, S_Raster_copy_01, HUC8):
-    for i, shapefile_list in enumerate([qc_points_shapefiles_02, qc_points_shapefiles_01]):
-        #Appends both 0_2PC and 01 qc points together, naming them respectively
+def Append_QC_points_to_S_Raster_Copies(qc_points_shapefiles_01, S_Raster_copy_all, HUC8):
 
-        for qc_points in shapefile_list:
-            #check that shapefile exists
-            qc_points_filename = os.path.basename(qc_points)
-            if not arcpy.Exists(qc_points):
-                arcpy.AddWarning("{0} not found for HUC8 folder {1}".format(qc_points_filename, HUC8))
-                continue
+    for qc_points in qc_points_shapefiles_01:
+        #check that shapefile exists
+        qc_points_filename = os.path.basename(qc_points)
+        if not arcpy.Exists(qc_points):
+            arcpy.AddWarning("{0} not found for HUC8 folder {1}".format(qc_points_filename, HUC8))
+            continue
 
-            #create temporary copy of qc_points in memory in order to change field names and append
-            qc_points_layer = os.path.join("in_memory", "qc_points")
-            arcpy.management.CopyFeatures(qc_points, qc_points_layer)
+        #create temporary copy of qc_points in memory in order to change field names and append
+        qc_points_layer = os.path.join("in_memory", "qc_points")
+        arcpy.management.CopyFeatures(qc_points, qc_points_layer)
 
-            #Change wsel_diff field to match target. If a_WTR_NM in fields (specifically for qc_points_cl), change it to WTR_NM.
-            fields = arcpy.ListFields(qc_points_layer)
-            field_names = [field.name for field in fields] 
-            if "a_WTR_NM" in field_names:
-                arcpy.management.AlterField(qc_points_layer, "a_WTR_NM", "WTR_NM")
-            arcpy.management.AlterField(qc_points_layer, "wsel_diff", "ELEV_DIFF")
-            arcpy.management.AlterField(qc_points_layer, "wsel_grid", "FVA_PLUS_0")
+        #Change wsel_diff field to match target. If a_WTR_NM in fields (specifically for qc_points_cl), change it to WTR_NM.
+        fields = arcpy.ListFields(qc_points_layer)
+        field_names = [field.name for field in fields] 
+        if "a_WTR_NM" in field_names:
+            arcpy.management.AlterField(qc_points_layer, "a_WTR_NM", "WTR_NM")
+        arcpy.management.AlterField(qc_points_layer, "wsel_diff", "ELEV_DIFF")
+        arcpy.management.AlterField(qc_points_layer, "wsel_grid", "FVA_PLUS_0")
 
-            #Append to specific copy of S_Raster_QC_pt
-            if i == 0:
-                arcpy.Append_management(inputs=qc_points_layer, target=S_Raster_copy_02, schema_type="NO_TEST")
+        #Append copy of S_Raster_QC_pt
+        arcpy.Append_management(inputs=qc_points_layer, target=S_Raster_copy_all, schema_type="NO_TEST")
+
+def update_fields_in_S_Raster_copies(S_Raster_copy_all, FIPS_code, county_name):
+
+    #Add values for 3 fields: FIPS code, FRBD_RP, and Source_Cit to all rows
+    with arcpy.da.UpdateCursor(S_Raster_copy_all, ["FIPS", "POL_NAME1", "Source_Cit", "NOTES", "WSEL_REG", "FVA_PLUS_0", "ERROR_TOL", "PASS_FAIL"]) as cursor:
+        for row in cursor:
+            row[0] = FIPS_code
+            row[1] = county_name
+            row[2] = "STUDY1"
+            row[3] = "NP"
+            row[6] = abs(row[5] - row[4])
+            if row[6] <= 0.5:
+                row[7] = "Pass"
             else:
-                arcpy.Append_management(inputs=qc_points_layer, target=S_Raster_copy_01, schema_type="NO_TEST")
+                row[7] = "Fail"
 
-def update_fields_in_S_Raster_copies(S_Raster_copy_02, S_Raster_copy_01, S_Raster_copy_all):
-    #clip to county boundary and append to geodatabase
-        for i, S_Raster_copy in enumerate([S_Raster_copy_02, S_Raster_copy_01]):
-            S_raster_clip = r"in_memory/S_raster_clip"
+            cursor.updateRow(row)
 
-            if i == 0:
-                fva_type = "0_2PCT"
-            else:
-                fva_type = "01PCT"
-            arcpy.analysis.Clip(S_Raster_copy, county_boundary, S_raster_clip)
+    return S_Raster_copy_all
 
-            #Add values for 3 fields: FIPS code, FRBD_RP, and Source_Cit to all rows
-            with arcpy.da.UpdateCursor(S_raster_clip, ["FIPS", "POL_NAME1","FRBD_RP", "Source_Cit", "NOTES"]) as cursor:
-                for row in cursor:
-                    row[0] = FIPS_code
-                    row[1] = county_name
-                    row[2] = fva_type
-                    row[3] = "STUDY1"
-                    row[4] = "NP"
-                    cursor.updateRow(row)
-
-            #append to S_Raster_QC_pt
-            arcpy.Append_management(inputs=S_raster_clip, target=S_Raster_copy_all, schema_type="NO_TEST")
-
-def Select_QC_Points_on_S_XS(S_Raster_copy_all, S_Raster_QC_pt, NFHL_data):
+def Select_QC_Points_on_county_S_XS(S_Raster_copy_all, S_Raster_QC_pt, NFHL_data, county_boundary):
     arcpy.AddMessage("Selecting QC points that intersect with NFHL S_XS and are within county boundary")
     S_XS = os.path.join(NFHL_data, "FIRM_Spatial_Layers", "S_XS")
 
-    arcpy.MakeFeatureLayer_management(S_Raster_copy_all, "S_Raster_copy_intersect")
+    #clip S_Raster_copy_all to county boundary
+    S_raster_clip = r"in_memory/S_raster_clip"
+    arcpy.analysis.Clip(S_Raster_copy_all, county_boundary, S_raster_clip)
+
+    #select all points that intersect with S_XS
+    arcpy.MakeFeatureLayer_management(S_raster_clip, "S_Raster_copy_intersect")
     arcpy.management.SelectLayerByLocation(in_layer="S_Raster_copy_intersect", overlap_type="WITHIN A DISTANCE", select_features=S_XS, search_distance="0.1 Meters", selection_type="NEW_SELECTION")
     
+    #append selected points to S_Raster_QC_pt
     arcpy.AddMessage("Appending selected QC points to S_Raster_QC_Pts")
     arcpy.management.Append(inputs="S_Raster_copy_intersect", target=S_Raster_QC_pt, schema_type="NO_TEST")
 
@@ -395,7 +398,7 @@ def Populate_S_Raster_QC_pt(FFRMS_Geodatabase, NFHL_data, Tool_Output_Folders, c
     S_Raster_QC_pt = os.path.join(FFRMS_Geodatabase, "S_Raster_QC_pt")
     arcpy.management.DeleteRows(S_Raster_QC_pt)
 
-    S_Raster_copy_02, S_Raster_copy_01, S_Raster_copy_all = Create_S_Raster_QC_Copies(S_Raster_QC_pt)
+    S_Raster_copy_all = Create_S_Raster_QC_Copy(S_Raster_QC_pt)
 
     #loop through Tool_Output_Folders (by HUC8)
     for tool_folder in Tool_Output_Folders:
@@ -405,16 +408,16 @@ def Populate_S_Raster_QC_pt(FFRMS_Geodatabase, NFHL_data, Tool_Output_Folders, c
         HUC8 = os.path.basename(tool_folder)
         
         #find 01 and 02 qc point shapefiles within tool folder
-        qc_points_shapefiles_02, qc_points_shapefiles_01 = find_QC_point_files(tool_folder, HUC8)
+        qc_points_shapefiles_01 = find_QC_point_files(tool_folder, HUC8)
 
         #Loop through both 01 and 02 qc shapefiles within HUC8 folder
-        Append_QC_points_to_S_Raster_Copies(qc_points_shapefiles_02, qc_points_shapefiles_01, S_Raster_copy_02, S_Raster_copy_01, HUC8)
+        Append_QC_points_to_S_Raster_Copies(qc_points_shapefiles_01, S_Raster_copy_all, HUC8)
 
     #Combine QC points together and update fields based on their FVA type
-    update_fields_in_S_Raster_copies(S_Raster_copy_02, S_Raster_copy_01, S_Raster_copy_all)
+    S_Raster_copy_all = update_fields_in_S_Raster_copies(S_Raster_copy_all, FIPS_code, county_name)
 
-    #Select all points that intersect with NFHL S_XS and append to S_Raster_QC_pt 
-    S_Raster_QC_pt = Select_QC_Points_on_S_XS(S_Raster_copy_all, S_Raster_QC_pt, NFHL_data)
+    #Select all points that intersect with NFHL S_XS (within county boundary) and append to S_Raster_QC_pt 
+    S_Raster_QC_pt = Select_QC_Points_on_county_S_XS(S_Raster_copy_all, S_Raster_QC_pt, NFHL_data, county_boundary)
 
     return S_Raster_QC_pt
 
