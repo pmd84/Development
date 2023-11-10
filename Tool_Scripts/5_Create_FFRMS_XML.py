@@ -433,12 +433,10 @@ def Update_XML_with_Replacement_Keys(County_XML, XML_data_replacements):
     #Write the XML
     write_xml(root, tree, County_XML)
 
-
 if __name__ == "__main__":
 
     FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
-    XML_template_file = arcpy.GetParameterAsText(1)
-    HUC8_Shapefile = arcpy.GetParameterAsText(2)
+    Tool_Template_Folder = arcpy.GetParameterAsText(1)
     
     # Set the workspace
     arcpy.env.workspace = FFRMS_Geodatabase
@@ -446,7 +444,7 @@ if __name__ == "__main__":
     Output_folder = os.path.dirname(FFRMS_Geodatabase)
 
     #Check if XML_template_file and HUC8_Shapefile are provided
-    HUC8_Shapefile, XML_template_file =  Check_Source_Data(XML_template_file, HUC8_Shapefile)
+    HUC8_Shapefile, XML_template_file =  Check_Source_Data(Tool_Template_Folder)
     
     #Initialize XML_data_replacements dictionary
     XML_data_replacements = {}
