@@ -113,10 +113,10 @@ def Get_County_Boundary(FIPS_code, county_server_shapefile):
     arcpy.management.SelectLayerByAttribute(in_layer_or_view="county_layer", selection_type="NEW_SELECTION", 
                                             where_clause="CO_FIPS = '{0}'".format(FIPS_code))
     
-    county_boundary = r"in_memory\county_boundary"
+    County_Boundary = r"in_memory\County_Boundary"
 
-    arcpy.management.CopyFeatures(in_features="county_layer", out_feature_class=county_boundary)
-    return county_boundary
+    arcpy.management.CopyFeatures(in_features="county_layer", out_feature_class=County_Boundary)
+    return County_Boundary
 
 def Check_Raster_Inputs(Input_rasters, pixel_type_dict):
     arcpy.AddMessage(u"\u200B")
@@ -139,6 +139,7 @@ def Create_Empty_Raster(FFRMS_Geodatabase, Output_Spatial_Reference, Output_File
     #Check to see if file already exists
     if arcpy.Exists(os.path.join(FFRMS_Geodatabase, Output_File_Name)):
         arcpy.AddMessage("{0} already exists - overwriting existing raster layer".format(Output_File_Name))
+        #arcpy.management.Delete(os.path.join(FFRMS_Geodatabase, Output_File_Name))
 
     #Set up Temp Raster Name based on Output File Name extension (tif, GRID, etc.)
     Temp_Raster_Name = "Temp_Mosaic_Raster"
@@ -183,12 +184,12 @@ def Round_Raster(Output_Mosaic_Dataset, pixel_type_dict):
 
     return Output_Mosaic_Dataset_rounded
 
-def Clip_to_County(Output_Mosaic_Dataset_rounded, county_boundary, Output_Raster):
+def Clip_to_County(Output_Mosaic_Dataset_rounded, County_Boundary, Output_Raster):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Clipping Raster to County Boundary #####")
 
     Output_Raster_Clipped = arcpy.management.Clip(in_raster=Output_Mosaic_Dataset_rounded, out_raster = Output_Raster, 
-                                                  in_template_dataset=county_boundary, nodata_value="-9999999",
+                                                  in_template_dataset=County_Boundary, nodata_value="-9999999",
                                                 clipping_geometry="ClippingGeometry", maintain_clipping_extent="MAINTAIN_EXTENT")[0]
     return Output_Raster_Clipped
     
@@ -248,7 +249,7 @@ def Erase_without_tool(input_features,erase_features,output_feature_class):
 
         arcpy.AddMessage("File successfully clipped")
 
-def Erase_Areas_and_Clip_To_County_Boundary(Erase_Areas, county_boundary, Output_Raster, Output_Mosaic_Dataset_rounded):
+def Erase_Areas_and_Clip_To_County_Boundary(Erase_Areas, County_Boundary, Output_Raster, Output_Mosaic_Dataset_rounded):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Erasing Areas and Clipping to County Boundary #####")
     
@@ -261,7 +262,7 @@ def Erase_Areas_and_Clip_To_County_Boundary(Erase_Areas, county_boundary, Output
         
         field_name1 = "Erase_" + Raster_FVA_value
         field_name2 = "Erase_All_FVAs"
-        query = "{0} = 'T' OR {1} = 'T'".format(field_name1, field_name2)
+        query = "{0} = 'Yes' OR {1} = 'Yes'".format(field_name1, field_name2)
 
         arcpy.AddMessage("Selecting erase features based on FVA value {0}".format(Raster_FVA_value))
         arcpy.management.MakeFeatureLayer(Erase_Areas, "Erase_Area_subset", query)
@@ -269,14 +270,14 @@ def Erase_Areas_and_Clip_To_County_Boundary(Erase_Areas, county_boundary, Output
         #Create Clip Mask
         clip_mask = r"in_memory/clip_mask"
         try:
-            arcpy.analysis.Erase(in_features=county_boundary, erase_features="Erase_Area_subset", out_feature_class=clip_mask)
+            arcpy.analysis.Erase(in_features=County_Boundary, erase_features="Erase_Area_subset", out_feature_class=clip_mask)
         except: #Erase tool not licensed
-            Erase_without_tool(county_boundary,"Erase_Area_subset",clip_mask)
+            Erase_without_tool(County_Boundary,"Erase_Area_subset",clip_mask)
 
         Output_Raster = Extract_by_Clip_Mask(Output_Mosaic_Dataset_rounded, clip_mask, Output_Raster)
     else:
         arcpy.AddMessage("No Erase Areas chosen.  Clipping raster to county boundary")
-        Output_Raster = Clip_to_County(Output_Mosaic_Dataset_rounded, county_boundary, Output_Raster)
+        Output_Raster = Clip_to_County(Output_Mosaic_Dataset_rounded, County_Boundary, Output_Raster)
 
     return Output_Raster
 
@@ -382,7 +383,7 @@ def Create_AOI_and_Erase_Area_Dictionaries(HUC_Erase_Area_gdbs):
 
 def Check_Erase_Areas(HUC8_erase_area_dict):
     arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Checking Erase Areas T/F Values #####")
+    arcpy.AddMessage("##### Checking Erase Areas Yes/No Values #####")
 
     for HUC8, Erase_Area_Feature in HUC8_erase_area_dict.items():
         #Search cursor through fields to find any True values
@@ -391,25 +392,25 @@ def Check_Erase_Areas(HUC8_erase_area_dict):
 
         with arcpy.da.UpdateCursor(Erase_Area_Feature, search_fields) as cursor:
             for row in cursor:
-                if "T" not in row:
-                    arcpy.AddError("Erase Areas for HUC8 {0} has no True values in row with OBJECTID {1}. Please update Erase Areas to contain at least one T value per row, and try again".format(HUC8, row[0]))
+                if "Y" not in row:
+                    arcpy.AddError("Erase Areas for HUC8 {0} has no 'Yes' values in row with OBJECTID {1}. Please update Erase Areas to contain at least one T value per row, and try again".format(HUC8, row[0]))
                     sys.exit()
                 
                 #Make sure lower FVAs are true if higher FVAs are true - ignoring 0_2PCT
-                if row[1] == "T":
-                    row[2] = row[3] = row[4] = row[5] = row[6] = "T"
-                elif row[5] == "T":
-                    row[2] =row[3] = row[4] = "T"
-                elif row[4] == "T":
-                    row[2] = row[3] = "T"
-                elif row[3] == "T":
-                    row[2] = "T"
+                if row[1] == "Y":
+                    row[2] = row[3] = row[4] = row[5] = row[6] = "Y"
+                elif row[5] == "Y":
+                    row[2] =row[3] = row[4] = "Y"
+                elif row[4] == "Y":
+                    row[2] = row[3] = "Y"
+                elif row[3] == "Y":
+                    row[2] = "Y"
                 cursor.updateRow(row)
 
         arcpy.AddMessage("Erase Areas are formatted properly")
     return
 
-def find_and_process_rasters_in_folder(folder, raster_name, FVA, HUC8_erase_area_dict, county_boundary):
+def find_and_process_rasters_in_folder(folder, raster_name, FVA, HUC8_erase_area_dict, County_Boundary):
             
     #Find tool output rasters:
     HUC8_raster_list = []
@@ -446,12 +447,10 @@ def find_and_process_rasters_in_folder(folder, raster_name, FVA, HUC8_erase_area
             #Create feature where FVA field is equal to 'T'        
             field_name1 = "Erase_" + FVA
             field_name2 = "Erase_All_FVAs"
-            query = "{0} = 'T' OR {1} = 'T'".format(field_name1, field_name2)
+            query = "{0} = 'Y' OR {1} = 'Y'".format(field_name1, field_name2)
             arcpy.management.MakeFeatureLayer(Erase_Area_Feature, "Erase_Area_subset", query)
 
-            #! Test with no T values in FVA
-
-            arcpy.AddMessage("Erasing {0} raster based on Erase_Area".format(raster_name))
+            arcpy.AddMessage("Erasing {0} raster based on Erase_Areas in {1}".format(raster_name, os.path.basename(Erase_Area_Feature)))
             erase = True
         except:
             arcpy.AddMessage("No Erase_Area feature given for HUC8 {0}".format(HUC8))
@@ -465,14 +464,14 @@ def find_and_process_rasters_in_folder(folder, raster_name, FVA, HUC8_erase_area
         #     arcpy.AddMessage("Clipping {0} raster to HUC8 and county boundary {1}".format(raster_name, HUC8))
         # else:
         #     arcpy.AddMessage("Clipping {0} raster to county boundary".format(raster_name))
-        #     arcpy.management.CopyFeatures(county_boundary, Mask_boundary)
+        #     arcpy.management.CopyFeatures(County_Boundary, Mask_boundary)
 
         #Create mask (used later for extracting raster) using Mask_boundary and Erase_Area_subset
         
         arcpy.AddMessage("Creating mask")
-        Mask_boundary = county_boundary
+        Mask_boundary = County_Boundary
 
-        if not erase:
+        if erase == False:
             #Dont add erase areas
             clip_mask = Mask_boundary
         else:
@@ -547,11 +546,18 @@ if __name__ == '__main__':
     arcpy.env.overwriteOutput = True
     arcpy.env.compression = "LZW"
 
+    #Fix One-Drive Naming convention:
+    HUC_Erase_Area_gdbs_fixed = []
+    for gdb in HUC_Erase_Area_gdbs:
+        gdb = gdb.replace("'","")
+        HUC_Erase_Area_gdbs_fixed.append(gdb)
+
     #Check tool output folder naming
     HUC8_tool_folder_dict = Create_Tool_Output_Folder_Dictionary(Tool_Output_Folders)
     
     #Check that Erase Areas have at least one True value for each feature
-    HUC8_erase_area_dict, HUC8_AOI_dict = Create_AOI_and_Erase_Area_Dictionaries(HUC_Erase_Area_gdbs)
+    HUC8_erase_area_dict, HUC8_AOI_dict = Create_AOI_and_Erase_Area_Dictionaries(HUC_Erase_Area_gdbs_fixed)
+    Check_Erase_Areas(HUC8_erase_area_dict)
 
     #Create pixel type dictionary for naming purposes when checking raster pixel depth
     pixel_type_dict = {

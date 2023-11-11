@@ -227,7 +227,6 @@ def Get_Project_Extents(FFRMS_Geodatabase, XML_data_replacements):
 
     return XML_data_replacements
 
-def Get_HANDy_HUC8_info(Tool_Output_Folders):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Getting HUC8 Information for County #####")
 
@@ -464,9 +463,6 @@ if __name__ == "__main__":
 
     #Update HUC8 place tags in XML
     Update_HUC8_Place_Tags(County_XML, HUC8_dict)
-
-    #Use HANDy Output Folders to determine which HUC8s were used
-    #HUC8_dict = Get_HANDy_HUC8_info(Tool_Output_Folders) #If we only want to use HANDy Outputs
 
     #Get Raster names, and remove 0.2% references in XML if no 500-year floodplain exists
     XML_data_replacements = Get_Raster_Info(FFRMS_Geodatabase, County_XML, XML_data_replacements)
