@@ -444,6 +444,10 @@ if __name__ == '__main__':
     FIPS_Code = arcpy.GetParameterAsText(1)[:5]
     Tool_Template_Folder = arcpy.GetParameterAsText(2) #Assuming this is already cleaned up in a file folder
 
+    #Add leading 0 to FIPS code if necessary
+    if len(FIPS_Code) == 4:
+        FIPS_Code = "0" + FIPS_Code
+        
     #Set environment variables
     arcpy.env.workspace = County_Folder
     arcpy.env.overwriteOutput = True

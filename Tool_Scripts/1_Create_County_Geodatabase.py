@@ -202,11 +202,17 @@ def Get_County_Info(fips_code, county_shapefile):
     arcpy.management.CopyFeatures(in_features="county_layer", out_feature_class=county_boundary)
 
     #Get county name from county boundary shapefile
-    county_name = arcpy.da.SearchCursor(county_boundary, "CO_FNAME").next()[0]
-    arcpy.AddMessage("County is {0}".format(county_name))
+    try:
+        arcpy.AddMessage("Getting county and state name")
+        county_name = arcpy.da.SearchCursor(county_boundary, "CO_FNAME").next()[0]
+        arcpy.AddMessage("County is {0}".format(county_name))
 
-    state_name = arcpy.da.SearchCursor(county_boundary, "ST_NAME").next()[0]
-    arcpy.AddMessage("State is {0}".format(state_name))
+        state_name = arcpy.da.SearchCursor(county_boundary, "ST_NAME").next()[0]
+        arcpy.AddMessage("State is {0}".format(state_name))
+    except:
+        arcpy.AddError("County not found using FIPS code: {0}. Please ensure you include all 5 digits, including leading 0, of FIPS.".format(fips_code))
+        arcpy.AddError("Check County Boundaries shapefile within Tool Template Folder to be sure your county and FIPS code are present")
+        sys.exit()
 
     state_name_abrv_dict = {"Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR", "California": "CA",
                             "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE", "Florida": "FL", "Georgia": "GA",
@@ -445,6 +451,10 @@ if __name__ == '__main__':
     UTM_zone = arcpy.GetParameterAsText(3)
     Tool_Template_Folder = arcpy.GetParameterAsText(4)
 
+    #Add leading 0 to FIPS code if needed
+    if len(FIPS_code) == 4:
+        FIPS_code = "0" + FIPS_code
+        
     arcpy.env.workspace = County_Production_Folder
     arcpy.env.overwriteOutput = True
 
