@@ -1,37 +1,139 @@
 
-import os
 import arcpy
+import sys
+from sys import argv
+import os
+import json
+import requests
+from arcpy import env
+from arcpy.sa import *
+import shutil
+import pandas as pd
 
-# Script header
-"""
-Add_Levee_to_AOI.py
-Version 1.0
-This script selects all levee features that intersect a floodplain polygon and saves them to a new shapefile.
-"""
+def Check_Source_Data(Tool_Template_Files, HUC_AOI_Erase_Area):
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Checking Source Data in Tool Template Files Folder #####")
 
-# Define parameters
-arcpy.AddMessage("Getting files:")
-Tool_Template_Files = arcpy.GetParameterAsText(0)
-floodplain_raster = arcpy.GetParameterAsText(1)
+    #If no Tool_Template_Files folder is provided, use Stantec server location
+    if Tool_Template_Folder == "" or Tool_Template_Folder == None:
+        Tool_Template_Folder = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\tools\Tool_Template_Files"
+        arcpy.AddMessage("No Tool Template Files location provided, using location on Stantec Server: {0}".format(Tool_Template_Folder))
+    
+    #Check to see if Tool_Template_Folder exists
+    if not os.path.exists(Tool_Template_Folder):
+        arcpy.AddError("Tool Template Files folder does not exist at provided lcoation Stantec Server. Please manually provide path to Tool Template Files folder and try again")
+        sys.exit()
+    else:
+        arcpy.AddMessage("Tool Template Files folder found")
+    
+    #Define paths for template data
+    levee_features = os.path.join(Tool_Template_Folder, "NLD", "231020_system_areas.shp")
 
-# Set workspace
-arcpy.env.workspace = folder_location
+    #Check or existence of template data
+    if not os.path.exists(levee_features):
+        arcpy.AddError("No Levee Features found in Tool Template Files folder. Please check you are using the correct Tool Template Folder, or add Levee Features as '231020_system_areas.shp' to the 'NLD' folder with Tool Template Files folder and try again")
+        sys.exit()
+    else:
+        arcpy.AddMessage("{0} found".format(os.path.basename(levee_features)))
 
-# Find levee shapefile
-levee_shp = os.path.join(Tool_Template_Files, "NLD", "NLD_levee.shp")
-for file in arcpy.ListFiles():
-    if file.endswith(".shp") and "levee" in file.lower():
-        levee_shp = os.path.join(arcpy.env.workspace, file)
-        break
+        # Find S_AOI_Ar features within "FFRMS_Spatial_Layers"
+    arcpy.AddMessage("Finding S_AOI_Ar features within 'FFRMS_Spatial_Layers'...")
+    arcpy.env.workspace = os.path.join(HUC_AOI_Erase_Area, "FFRMS_Spatial_Layers")
+    fcs = arcpy.ListFeatureClasses()
+    S_AOI_Ar = None
+    for fc in fcs:
+        if "S_AOI_Ar" in fc:
+            S_AOI_Ar = os.path.join(HUC_AOI_Erase_Area, "FFRMS_Spatial_Layers", fc)
+            break
+    if S_AOI_Ar is None:
+        arcpy.AddError("S_AOI_Ar feature class not found. Please add to AOIs_Erase_Area.gdb and try again")
+        sys.exit()
+    
+    return levee_features, S_AOI_Ar
 
-if not levee_shp:
-    arcpy.AddError("Levee shapefile not found.")
-else:
-    # Convert floodplain raster to polygon
-    floodplain_poly = os.path.join(arcpy.env.workspace, "floodplain_poly.shp")
-    arcpy.RasterToPolygon_conversion(floodplain_raster, floodplain_poly)
+def Convert_Rasters_to_Polygon(FVA03_raster):
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Converting FVA +0 and FVA0 +3 rasters to Polygon #####")
+
+    if FVA03_raster == "" or FVA03_raster == None:
+        arcpy.AddError("FVA03 Raster Not Found or not provided. Please provide FVA03 (wsel_grid_3) raster")
+        exit()
+    
+    try:
+        arcpy.AddMessage("Converting {0} to polygon".format(FVA03_raster))
+
+        #Must convert to int first
+        FVA_raster_int = Int(FVA03_raster)
+
+        conversion_type = "MULTIPLE_OUTER_PART"
+        output_temp_polygon = os.path.join("in_memory", "raster_polygon")
+        
+        FVA_polygon = arcpy.RasterToPolygon_conversion(in_raster=FVA_raster_int, out_polygon_features=output_temp_polygon, 
+                                                    simplify="SIMPLIFY", create_multipart_features=conversion_type)
+    
+        FVA03_polygon = os.path.join("in_memory", "FVA03_polygon")
+
+        try:
+            arcpy.management.Dissolve(in_features=FVA_polygon, out_feature_class=FVA03_polygon)
+
+        except Exception as e: #If Dissolve Fails, try repairing geometry and dissolving again
+            arcpy.AddMessage("Failed to dissolve {0} to polygon".format(FVA03_raster))
+            arcpy.AddMessage("Reparing geometry and trying again")
+
+            FVA_polygon = arcpy.RepairGeometry_management(FVA_polygon)
+            arcpy.management.Dissolve(in_features=FVA_polygon, out_feature_class=FVA03_polygon)
+
+    except Exception as e:
+        arcpy.AddWarning("Failed to convert {0} to polygon".format(FVA03_raster))
+        arcpy.AddWarning(e)
+        sys.exit()
+
+    arcpy.AddMessage("FVA03 polygon successfully created")
+
+    return FVA03_polygon
+
+if __name__ == '__main__':
+
+    # Define parameters
+    Tool_Template_Files = arcpy.GetParameterAsText(0)
+    FVA03_raster = arcpy.GetParameterAsText(1)
+    HUC_AOI_Erase_Area = arcpy.GetParameterAsText(2)
+
+    # Set workspace
+    arcpy.env.workspace = HUC_AOI_Erase_Area
+
+    # Check for source data
+    levee_features, S_AOI_Ar = Check_Source_Data(Tool_Template_Files, HUC_AOI_Erase_Area)
+
+    # Convert FVA03 raster to polygon
+    FV03_polygon = Convert_Rasters_to_Polygon(FVA03_raster)
 
     # Select all levee features that intersect floodplain polygon
-    levee_floodplain = os.path.join(arcpy.env.workspace, "levee_floodplain.shp")
-    arcpy.SelectLayerByLocation_management(levee_shp, "INTERSECT", floodplain_poly)
-    arcpy.CopyFeatures_management(levee_shp, levee_floodplain)
+    arcpy.AddMessage("Selecting all levee features that intersect floodplain polygon...")
+    levee_floodplain = os.path.join("in_memory", "levee_floodplain")
+
+    arcpy.Management.MakeFeatureLayer(levee_features, "levee_features")
+    arcpy.SelectLayerByLocation_management("levee_features", "INTERSECT", FV03_polygon)
+    arcpy.CopyFeatures_management("levee_features", levee_floodplain)
+
+    #Add Fields AOI_TYP, AOI_ISSUE, and AOI_INFO
+    arcpy.AddMessage("Adding fields to levee_floodplain feature class...")
+    arcpy.AddField_management(levee_floodplain, "AOI_TYP", "TEXT")
+    arcpy.AddField_management(levee_floodplain, "AOI_ISSUE", "TEXT")
+    arcpy.AddField_management(levee_floodplain, "AOI_INFO", "TEXT")
+
+    #Calculate Fields
+    arcpy.AddMessage("Calculating fields in levee_floodplain feature class...")
+    AOI_Typ = "Riverine" #Riverine
+    AOI_Issue = "Levee" #Levee
+    S_AOI_Issues = r"Please contact your FEMA Regional FFRMS Specialist for additional information at FEMA-FFRMS-Support-Request@fema.dhs.gov"
+    
+    arcpy.CalculateField_management(levee_floodplain, "AOI_TYP", AOI_Typ, "PYTHON3")
+    arcpy.CalculateField_management(levee_floodplain, "AOI_ISSUE", AOI_Issue, "PYTHON3")
+    arcpy.CalculateField_management(levee_floodplain, "AOI_INFO", S_AOI_Issues, "PYTHON3")
+
+    #Append to S_AOI_Ar features
+    arcpy.AddMessage("Appending to S_AOI_Ar features...")
+    arcpy.Append_management(levee_floodplain, S_AOI_Ar, "NO_TEST")
+
+    arcpy.AddMessage("Levee features added to S_AOI_Ar features successfully")
