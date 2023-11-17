@@ -10,11 +10,11 @@ from arcpy.sa import *
 import shutil
 import pandas as pd
 
-def Check_Source_Data(Tool_Template_Files, HUC_AOI_Erase_Area):
+def Check_Source_Data(Tool_Template_Folder, HUC_AOI_Erase_Area):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Checking Source Data in Tool Template Files Folder #####")
 
-    #If no Tool_Template_Files folder is provided, use Stantec server location
+    #If no Tool_Template_Folder folder is provided, use Stantec server location
     if Tool_Template_Folder == "" or Tool_Template_Folder == None:
         Tool_Template_Folder = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\tools\Tool_Template_Files"
         arcpy.AddMessage("No Tool Template Files location provided, using location on Stantec Server: {0}".format(Tool_Template_Folder))
@@ -43,6 +43,7 @@ def Check_Source_Data(Tool_Template_Files, HUC_AOI_Erase_Area):
     S_AOI_Ar = None
     for fc in fcs:
         if "S_AOI_Ar" in fc:
+            arcpy.AddMessage("{0} found".format(fc))
             S_AOI_Ar = os.path.join(HUC_AOI_Erase_Area, "FFRMS_Spatial_Layers", fc)
             break
     if S_AOI_Ar is None:
@@ -66,12 +67,17 @@ def Convert_Rasters_to_Polygon(FVA03_raster):
         FVA_raster_int = Int(FVA03_raster)
 
         conversion_type = "MULTIPLE_OUTER_PART"
-        output_temp_polygon = os.path.join("in_memory", "raster_polygon")
+
+        output_location = HUC_AOI_Erase_Area
+        output_temp_polygon = os.path.join(output_location, "raster_polygon")
+        FVA03_polygon = os.path.join(output_location, "FVA03_polygon")
         
+        #! Delete after testing
+        if arcpy.Exists(FVA03_polygon):
+            return FVA03_polygon
+            
         FVA_polygon = arcpy.RasterToPolygon_conversion(in_raster=FVA_raster_int, out_polygon_features=output_temp_polygon, 
                                                     simplify="SIMPLIFY", create_multipart_features=conversion_type)
-    
-        FVA03_polygon = os.path.join("in_memory", "FVA03_polygon")
 
         try:
             arcpy.management.Dissolve(in_features=FVA_polygon, out_feature_class=FVA03_polygon)
@@ -92,48 +98,77 @@ def Convert_Rasters_to_Polygon(FVA03_raster):
 
     return FVA03_polygon
 
+def select_levee_features(HUC_AOI_Erase_Area, FV03_polygon):
+        
+    levee_output_location = HUC_AOI_Erase_Area
+    #levee_output_location = "in_memory" #! Replace after testing
+
+    levee_FVA03 = os.path.join(levee_output_location, "levee_FVA03")
+    
+    if arcpy.Exists(levee_FVA03):
+        return levee_FVA03
+    
+    arcpy.MakeFeatureLayer_management(levee_features, "levee_features")
+    arcpy.SelectLayerByLocation_management("levee_features", "INTERSECT", FV03_polygon)
+    arcpy.CopyFeatures_management("levee_features", levee_FVA03)
+    return levee_FVA03
+    
 if __name__ == '__main__':
 
     # Define parameters
-    Tool_Template_Files = arcpy.GetParameterAsText(0)
-    FVA03_raster = arcpy.GetParameterAsText(1)
-    HUC_AOI_Erase_Area = arcpy.GetParameterAsText(2)
+    FVA03_raster = arcpy.GetParameterAsText(0)
+    HUC_AOI_Erase_Area = arcpy.GetParameterAsText(1)
+    Tool_Template_Folder = arcpy.GetParameterAsText(2)
 
     # Set workspace
     arcpy.env.workspace = HUC_AOI_Erase_Area
 
     # Check for source data
-    levee_features, S_AOI_Ar = Check_Source_Data(Tool_Template_Files, HUC_AOI_Erase_Area)
+    levee_features, S_AOI_Ar = Check_Source_Data(Tool_Template_Folder, HUC_AOI_Erase_Area)
 
     # Convert FVA03 raster to polygon
     FV03_polygon = Convert_Rasters_to_Polygon(FVA03_raster)
 
     # Select all levee features that intersect floodplain polygon
     arcpy.AddMessage("Selecting all levee features that intersect floodplain polygon...")
-    levee_floodplain = os.path.join("in_memory", "levee_floodplain")
-
-    arcpy.Management.MakeFeatureLayer(levee_features, "levee_features")
-    arcpy.SelectLayerByLocation_management("levee_features", "INTERSECT", FV03_polygon)
-    arcpy.CopyFeatures_management("levee_features", levee_floodplain)
+        
+    levee_FVA03 = select_levee_features(HUC_AOI_Erase_Area, FV03_polygon)
 
     #Add Fields AOI_TYP, AOI_ISSUE, and AOI_INFO
-    arcpy.AddMessage("Adding fields to levee_floodplain feature class...")
-    arcpy.AddField_management(levee_floodplain, "AOI_TYP", "TEXT")
-    arcpy.AddField_management(levee_floodplain, "AOI_ISSUE", "TEXT")
-    arcpy.AddField_management(levee_floodplain, "AOI_INFO", "TEXT")
+    arcpy.AddMessage("Adding fields to levee features class...")
+    for field in ["AOI_TYP", "AOI_ISSUE", "AOI_INFO"]:
+        if field in [f.name for f in arcpy.ListFields(levee_FVA03)]:
+            arcpy.AddMessage("{0} field already exists".format(field))
+        else:
+            arcpy.AddField_management(levee_FVA03, field, "TEXT")
 
     #Calculate Fields
-    arcpy.AddMessage("Calculating fields in levee_floodplain feature class...")
+    arcpy.AddMessage("Calculating fields in levee_FVA03 feature class...")
     AOI_Typ = "Riverine" #Riverine
     AOI_Issue = "Levee" #Levee
     S_AOI_Issues = r"Please contact your FEMA Regional FFRMS Specialist for additional information at FEMA-FFRMS-Support-Request@fema.dhs.gov"
     
-    arcpy.CalculateField_management(levee_floodplain, "AOI_TYP", AOI_Typ, "PYTHON3")
-    arcpy.CalculateField_management(levee_floodplain, "AOI_ISSUE", AOI_Issue, "PYTHON3")
-    arcpy.CalculateField_management(levee_floodplain, "AOI_INFO", S_AOI_Issues, "PYTHON3")
+    arcpy.CalculateField_management(levee_FVA03, "AOI_TYP", '"' + AOI_Typ + '"', "PYTHON3")
+    arcpy.CalculateField_management(levee_FVA03, "AOI_ISSUE", '"' + AOI_Issue + '"', "PYTHON3")
+    arcpy.CalculateField_management(levee_FVA03, "AOI_INFO", '"' + S_AOI_Issues + '"', "PYTHON3")
 
     #Append to S_AOI_Ar features
     arcpy.AddMessage("Appending to S_AOI_Ar features...")
-    arcpy.Append_management(levee_floodplain, S_AOI_Ar, "NO_TEST")
+
+    # Count number of entries in S_AOI_Ar before appending
+
+    num_entries_before = int(arcpy.GetCount_management(S_AOI_Ar).getOutput(0))
+
+    # Append to S_AOI_Ar features
+    arcpy.Append_management(levee_FVA03, S_AOI_Ar, "NO_TEST")
+
+    # Count number of entries in S_AOI_Ar after appending
+    num_entries_after = int(arcpy.GetCount_management(S_AOI_Ar).getOutput(0))
+
+    # Print results
+    print(f"Number of entries before appending: {num_entries_before}")
+    print(f"Number of entries after appending: {num_entries_after}")
+
+    arcpy.Append_management(levee_FVA03, S_AOI_Ar, "NO_TEST")
 
     arcpy.AddMessage("Levee features added to S_AOI_Ar features successfully")
