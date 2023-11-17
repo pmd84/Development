@@ -89,5 +89,52 @@ def Convert_Rasters_to_Polygon(FFRMS_Geodatabase):
 
     return FVA_Polygon_Dict
 
+if __name__ == "__main__":
+    
+    FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
+    QC_Output_Folder = arcpy.GetParameterAsText(1)
 
+    arcpy.env.workspace = FFRMS_Geodatabase
+    arcpy.env.overwriteOutput = True
 
+    FVA_Polygon_Dict = Convert_Rasters_to_Polygon(FFRMS_Geodatabase) #Might not need to use this function
+
+    #Find difference between FVA00 and FVA01
+    #Use the output shapefile from the QC tool that has identified the areas (polygons) and convert them back to a grid where they equal 1 where a polygon exists
+    #Grid math – multiply the error grid times the FVA1 grid (in the example) to get the FVA1 value at those locations. Then grid math to add 1 foot to get the missing FVA 2 values. Then add the old FVA2 grid to the missing area FVA2 grid to fill in the gaps. Circle through each profile grid
+    
+    #Get difference polygons
+    diffFva0_1 = os.path.join(QC_Output_Folder, "diffFva0_1.shp")
+    diffFva1_2 = os.path.join(QC_Output_Folder, "diffFva1_2.shp")
+    diffFva2_3 = os.path.join(QC_Output_Folder, "diffFva2_3.shp")
+
+    for i, diff_polygon in enumerate([diffFva0_1, diffFva1_2, diffFva2_3]):
+
+        lower_FVA = i
+        higher_FVA = i+1
+        arcpy.AddMessage("Comparing FVA0{} to FVA0{} rasters".format(lower_FVA, higher_FVA))
+
+        if not arcpy.Exists(diff_polygon):
+            arcpy.AddWarning("{} does not exist".format(diff_polygon))
+
+        #Get count of each difference polygon
+        arcpy.AddMessage("Getting count of difference polygons in {}".format(diff_polygon))
+        count = arcpy.GetCount_management(diff_polygon)
+        arcpy.AddMessage("Count: {}".format(count))
+
+        if count == 0:
+            arcpy.AddMessage("No difference polygons found in {}".format(diff_polygon))
+            continue
+
+        #Convert difference polygons to raster
+        arcpy.AddMessage("Converting {} to raster".format(diff_polygon))
+        output_location = FFRMS_Geodatabase
+        diff_raster = os.path.join(output_location, "Diff_FVA{0}_{1}_raster".format(lower_FVA, higher_FVA))
+
+        #Convert to raster with all values equal to 1 and cell size equal to 3
+        diff_raster = arcpy.FeatureToRaster_conversion(in_features=diff_polygon, field="FID", 
+                                                        out_raster=diff_raster, cell_size=3)
+        
+
+        
+    
