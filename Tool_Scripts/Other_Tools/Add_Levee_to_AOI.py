@@ -68,13 +68,9 @@ def Convert_Rasters_to_Polygon(FVA03_raster):
 
         conversion_type = "MULTIPLE_OUTER_PART"
 
-        output_location = HUC_AOI_Erase_Area
+        output_location = "in_memory"
         output_temp_polygon = os.path.join(output_location, "raster_polygon")
         FVA03_polygon = os.path.join(output_location, "FVA03_polygon")
-        
-        #! Delete after testing
-        if arcpy.Exists(FVA03_polygon):
-            return FVA03_polygon
             
         FVA_polygon = arcpy.RasterToPolygon_conversion(in_raster=FVA_raster_int, out_polygon_features=output_temp_polygon, 
                                                     simplify="SIMPLIFY", create_multipart_features=conversion_type)
@@ -100,8 +96,7 @@ def Convert_Rasters_to_Polygon(FVA03_raster):
 
 def select_levee_features(HUC_AOI_Erase_Area, FV03_polygon):
         
-    levee_output_location = HUC_AOI_Erase_Area
-    #levee_output_location = "in_memory" #! Replace after testing
+    levee_output_location = "in_memory"
 
     levee_FVA03 = os.path.join(levee_output_location, "levee_FVA03")
     

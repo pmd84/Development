@@ -534,8 +534,6 @@ def get_county_info(FFRMS_Geodatabase):
     return S_FFRMS_Proj_Ar, county_boundary, county_name
     
 if __name__ == "__main__":
-
-    # TODO: ADD/Calculate new fields in QC Points
     
     FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
     Tool_Output_Folders = arcpy.GetParameterAsText(1).split(";")
