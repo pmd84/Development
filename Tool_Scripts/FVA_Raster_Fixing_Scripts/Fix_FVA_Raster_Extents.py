@@ -3,8 +3,6 @@ import arcpy
 import sys
 from sys import argv
 import os
-import json
-import requests
 from arcpy import env
 from arcpy.sa import *
 import shutil
@@ -23,7 +21,27 @@ def check_out_spatial_analyst():
         arcpy.AddMessage("Exiting")
         sys.exit()
 
-def Convert_Rasters_to_Polygon(FFRMS_Geodatabase):
+def find_diff_files(QC_Output_Folder):
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Finding Extent Difference Polygons in QC Folder #####")
+
+    diffFva0_1 = os.path.join(QC_Output_Folder, "diffFva0_1.shp")
+    diffFva1_2 = os.path.join(QC_Output_Folder, "diffFva1_2.shp")
+    diffFva2_3 = os.path.join(QC_Output_Folder, "diffFva2_3.shp")
+
+    if not arcpy.Exists(diffFva0_1):
+        diffFva0_1 = os.path.join(QC_Output_Folder, "diffFva1_0.shp") #Fixes descripancy between QC tool versions
+    
+    for diffFiles in [diffFva0_1, diffFva1_2, diffFva2_3]:
+        if not arcpy.Exists(diffFiles):
+            arcpy.AddWarning("{} does not exist in QC Output folder location. Ensure QC tool has been run".format(diffFiles))
+            sys.exit()
+        else:
+            arcpy.AddMessage("Found {0}".format(diffFiles))
+
+    return diffFva0_1, diffFva1_2, diffFva2_3
+    
+def Convert_Rasters_to_Polygon(FFRMS_Geodatabase, Temp_File_Output_Location):
     # 1.    Find the FVA0 and FVA03 raster in the geodatabase
     # 2.	turn float grid to Integer (INT tool)
     # 3.	Raster to Polygon, choose simplify polygon option
@@ -55,21 +73,20 @@ def Convert_Rasters_to_Polygon(FFRMS_Geodatabase):
     #Loop through all available rasters
     for FVA_value, FVA_raster in raster_dict.items():
         try:
-            arcpy.AddMessage("Converting {0} to polygon".format(FVA_raster))
             raster_name = os.path.basename(FVA_raster)
+            arcpy.AddMessage("Converting {0} to polygon".format(raster_name))
 
             #Convert to Int
             FVA_raster_int = Int(FVA_raster)
 
             #Convert to Polygon
             conversion_type = "MULTIPLE_OUTER_PART"
-            output_location = FFRMS_Geodatabase #! Make in_memory after testing
-            output_temp_polygon = os.path.join(output_location, "{0}_polygon".format(raster_name))
+            output_temp_polygon = os.path.join(Temp_File_Output_Location, "{0}_polygon".format(raster_name))
             FVA_polygon = arcpy.RasterToPolygon_conversion(in_raster=FVA_raster_int, out_polygon_features=output_temp_polygon, 
                                                         simplify="SIMPLIFY", create_multipart_features=conversion_type)
             
             #Dissolve
-            output_dissolved_polygon = os.path.join(output_location, "FVA{0}_polygon".format(FVA_value))
+            output_dissolved_polygon = os.path.join(Temp_File_Output_Location, "FVA{0}_polygon".format(FVA_value))
             try:
                 arcpy.management.Dissolve(in_features=FVA_polygon, out_feature_class=output_dissolved_polygon)
 
@@ -89,16 +106,16 @@ def Convert_Rasters_to_Polygon(FFRMS_Geodatabase):
 
     FVA_Polygon_Dict = {}
     if "00FVA" in raster_dict:
-        FVA_Polygon_Dict["00FVA"] = os.path.join(output_location, "FVA00_polygon")
+        FVA_Polygon_Dict["00FVA"] = os.path.join(Temp_File_Output_Location, "FVA00_polygon")
 
     if "01FVA" in raster_dict:
-        FVA_Polygon_Dict["01FVA"] = os.path.join(output_location, "FVA01_polygon")
+        FVA_Polygon_Dict["01FVA"] = os.path.join(Temp_File_Output_Location, "FVA01_polygon")
 
     if "02FVA" in raster_dict:
-        FVA_Polygon_Dict["02FVA"] = os.path.join(output_location, "FVA02_polygon")
+        FVA_Polygon_Dict["02FVA"] = os.path.join(Temp_File_Output_Location, "FVA02_polygon")
 
     if "03FVA" in raster_dict:
-        FVA_Polygon_Dict["03FVA"] = os.path.join(output_location, "FVA03_polygon")
+        FVA_Polygon_Dict["03FVA"] = os.path.join(Temp_File_Output_Location, "FVA03_polygon")
 
     return FVA_Polygon_Dict
 
@@ -133,7 +150,8 @@ def Check_FVA_Difference_Polygon(lower_FVA, higher_FVA, diff_polygon):
     #Check if there are any differences between the two FVA rasters
     #If there are no differences, no changes are needed to the higher FVA raster
     #If there are differences, changes are needed to the higher FVA raster
-    arcpy.AddMessage("Comparing {} to {} rasters".format(lower_FVA, higher_FVA))
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Comparing {} to {} rasters #####".format(lower_FVA, higher_FVA))
 
     #End tool of no difference polygons exist for a specific FVA comparison
     if not arcpy.Exists(diff_polygon):
@@ -153,8 +171,10 @@ def Check_FVA_Difference_Polygon(lower_FVA, higher_FVA, diff_polygon):
         arcpy.AddMessage("Changes to {} raster needed".format(higher_FVA))
         return True
 
-def Convert_Polygon_to_Raster(diff_polygon, Temp_File_Output_Location):
-    arcpy.AddMessage("Converting {} to raster".format(diff_polygon))
+def Convert_Polygon_to_Raster(diff_polygon, lower_FVA, higher_FVA, Temp_File_Output_Location):
+
+    polygon_name = os.path.basename(diff_polygon)
+    arcpy.AddMessage("Converting {} to raster".format(polygon_name))
     diff_raster = os.path.join(Temp_File_Output_Location, "Diff_{0}_{1}_raster".format(lower_FVA, higher_FVA))
 
     #merge all polygons into a single multipart feature class
@@ -181,6 +201,28 @@ def Add_FVA_Value_To_Raster(diff_raster, lower_FVA, higher_FVA, Temp_File_Output
 
     return Add_raster
 
+def Mosaic_to_Higher_FVA_Raster(higher_FVA, Add_raster):
+    #Mosaic the new raster with the higher FVA raster - Needs more testing
+
+    higher_FVA_Raster = raster_dict[higher_FVA]
+    arcpy.AddMessage("Mosaicing additional data to {} raster".format(os.path.basename(higher_FVA_Raster)))
+    arcpy.management.Mosaic(inputs=Add_raster,
+                            target=higher_FVA_Raster, 
+                            mosaic_type="BLEND", 
+                            colormap= "LAST", 
+                            background_value =-99999,
+                            nodata_value =-99999)
+    return higher_FVA_Raster
+
+def Check_Raster_Properties(higher_FVA_Raster):
+    #check pixel size of new raster
+    pixel_type = arcpy.GetRasterProperties_management(higher_FVA_Raster, "VALUETYPE").getOutput(0)
+    if pixel_type != "9":
+        arcpy.AddWarning("Output raster is not 32_BIT_FLOAT.  Please check the output raster for inconsistencies.")
+    else:
+        arcpy.AddMessage("Output raster is 32_BIT_FLOAT")
+        
+
 if __name__ == "__main__":
     
     #Make sure spatial analyst is checked out
@@ -190,23 +232,21 @@ if __name__ == "__main__":
     FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
     QC_Output_Folder = arcpy.GetParameterAsText(1)
 
-    #Get file paths
-    diffFva0_1 = os.path.join(QC_Output_Folder, "diffFva0_1.shp")
-    diffFva1_2 = os.path.join(QC_Output_Folder, "diffFva1_2.shp")
-    diffFva2_3 = os.path.join(QC_Output_Folder, "diffFva2_3.shp")
-
-    Temp_File_Output_Location = FFRMS_Geodatabase #! Make in_memory after testing
-
     #Set Environment
     arcpy.env.workspace = FFRMS_Geodatabase
     arcpy.env.overwriteOutput = True
 
+    #! Change to in_memory after testing
+    Temp_File_Output_Location = FFRMS_Geodatabase 
+    #Temp_File_Output_Location = "in_memory"
+
+    #Get file paths for extent difference polygons
+    diffFva0_1, diffFva1_2, diffFva2_3 = find_diff_files(QC_Output_Folder)
+
     #Find Rasters in Geodatabase and create dictionary - Keys are FVA values, Values are Raster path
     raster_dict = Find_FVA_Rasters(FFRMS_Geodatabase)
 
-    arcpy.AddMessage("Raster Dictionary: {}".format(raster_dict))
-
-    #Loop through the raster comparision polygons
+    #Loop through the raster comparision polygons, process each one, and add the results to the higher FVA raster if necessary
     for i, diff_polygon in enumerate([diffFva0_1, diffFva1_2, diffFva2_3]):
 
         lower_FVA = "0{}FVA".format(i)
@@ -217,28 +257,16 @@ if __name__ == "__main__":
             continue
 
         #Convert difference polygons to raster        
-        diff_raster = Convert_Polygon_to_Raster(diff_polygon, Temp_File_Output_Location)
+        diff_raster = Convert_Polygon_to_Raster(diff_polygon, lower_FVA, higher_FVA, Temp_File_Output_Location)
         
         #Create new values for diff_raster by setting them equal to lower FVA value + 1 
         Add_raster = Add_FVA_Value_To_Raster(diff_raster, lower_FVA, higher_FVA, Temp_File_Output_Location)
-        
-        #Mosaic the new raster with the higher FVA raster
-        arcpy.AddMessage("Mosaicing additional data to {} raster".format(Add_raster, higher_FVA_Raster))
-        higher_FVA_Raster = raster_dict[higher_FVA]
-        arcpy.management.Mosaic(inputs=Add_raster,
-                                target=higher_FVA_Raster, 
-                                mosaic_type="BLEND", 
-                                colormap= "LAST", 
-                                background_value =-99999,
-                                nodata_value =-99999)
-        
-        #check pixel size of new raster
+    
+        #Mosaic the new raster with the higher FVA raster - Needs more testing
+        higher_FVA_Raster = Mosaic_to_Higher_FVA_Raster(higher_FVA, Add_raster)
 
-        pixel_type = arcpy.GetRasterProperties_management(higher_FVA_Raster, "VALUETYPE").getOutput(0)
-        if pixel_type != "9":
-            arcpy.AddWarning("Output raster is not 32_BIT_FLOAT.  Please check the output raster for inconsistencies.")
-        else:
-            arcpy.AddMessage("Output raster is 32_BIT_FLOAT")
+        Check_Raster_Properties(higher_FVA_Raster)
+            
 
         
 
