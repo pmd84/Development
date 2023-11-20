@@ -10,7 +10,7 @@ from arcpy.sa import *
 import shutil
 import pandas as pd
 
-def check_out_extension():
+def check_out_spatial_analyst():
     try:
         if arcpy.CheckExtension("Spatial") == "Available":
             arcpy.CheckOutExtension("Spatial")
@@ -129,7 +129,7 @@ def Find_FVA_Rasters(FFRMS_Geodatabase):
 
     return raster_dict
 
-def Check_FVA_Raster_Difference(lower_FVA, higher_FVA, diff_polygon):
+def Check_FVA_Difference_Polygon(lower_FVA, higher_FVA, diff_polygon):
     #Check if there are any differences between the two FVA rasters
     #If there are no differences, no changes are needed to the higher FVA raster
     #If there are differences, changes are needed to the higher FVA raster
@@ -142,9 +142,9 @@ def Check_FVA_Raster_Difference(lower_FVA, higher_FVA, diff_polygon):
         return False
 
     #Get count of each difference polygon
-    count = arcpy.GetCount_management(diff_polygon)
+    count = int(arcpy.GetCount_management(diff_polygon)[0])
     arcpy.AddMessage("There are {0} features with differences between {1} and {2}".format(count, lower_FVA, higher_FVA))
-
+                     
     if count == 0:
         arcpy.AddMessage("No difference polygons found in {}".format(diff_polygon))
         arcpy.AddMessage("No changes to {} raster needed".format(higher_FVA))
@@ -163,26 +163,28 @@ def Convert_Polygon_to_Raster(diff_polygon, Temp_File_Output_Location):
     arcpy.Merge_management(inputs=diff_polygon, output=merged_polygon)
 
     #Convert to raster with all values equal to 1 and cell size equal to 3
-    diff_raster = arcpy.FeatureToRaster_conversion(in_features=merged_polygon, field="FID", 
+    diff_raster = arcpy.FeatureToRaster_conversion(in_features=merged_polygon, field="OBJECTID", 
                                                     out_raster=diff_raster, cell_size=3)
     
     return diff_raster
 
-def Add_FVA_Values_To_Raster(diff_raster, lower_FVA, higher_FVA, Temp_File_Output_Location):
+def Add_FVA_Value_To_Raster(diff_raster, lower_FVA, higher_FVA, Temp_File_Output_Location):
     #multiply the error grid times the lower FVA grid to get the FVA value at those locations. 
     #Then grid math to add 1 foot to get the missing higher FVA values
 
     lower_FVA_Raster = raster_dict[lower_FVA]
-    raster_calc = RasterCalculator([diff_raster, lower_FVA_Raster], ["x","y"], "(x*y)+1")
+    raster_calc = RasterCalculator([arcpy.Raster(diff_raster), arcpy.Raster(lower_FVA_Raster)], ["x","y"], "(x*y)+1")
+
+    #Save raster portion to add to temp location
     Add_raster = os.path.join(Temp_File_Output_Location, "Add_to_{0}_raster".format(higher_FVA))
     arcpy.management.CopyRaster(raster_calc, Add_raster)
-    
+
     return Add_raster
 
 if __name__ == "__main__":
     
     #Make sure spatial analyst is checked out
-    check_out_extension()
+    check_out_spatial_analyst()
 
     #Get tool input parameters
     FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
@@ -192,6 +194,7 @@ if __name__ == "__main__":
     diffFva0_1 = os.path.join(QC_Output_Folder, "diffFva0_1.shp")
     diffFva1_2 = os.path.join(QC_Output_Folder, "diffFva1_2.shp")
     diffFva2_3 = os.path.join(QC_Output_Folder, "diffFva2_3.shp")
+
     Temp_File_Output_Location = FFRMS_Geodatabase #! Make in_memory after testing
 
     #Set Environment
@@ -201,21 +204,23 @@ if __name__ == "__main__":
     #Find Rasters in Geodatabase and create dictionary - Keys are FVA values, Values are Raster path
     raster_dict = Find_FVA_Rasters(FFRMS_Geodatabase)
 
+    arcpy.AddMessage("Raster Dictionary: {}".format(raster_dict))
+
     #Loop through the raster comparision polygons
     for i, diff_polygon in enumerate([diffFva0_1, diffFva1_2, diffFva2_3]):
 
-        lower_FVA = "FVA0{}".format(i)
-        higher_FVA = "FVA0{}".format(i+1)
+        lower_FVA = "0{}FVA".format(i)
+        higher_FVA = "0{}FVA".format(i+1)
 
         #Check if there are any differences between the two FVA rasters - if not, skip this FVA comparison
-        if not Check_FVA_Raster_Difference(lower_FVA, higher_FVA, diff_polygon):
+        if Check_FVA_Difference_Polygon(lower_FVA, higher_FVA, diff_polygon) == False:
             continue
 
         #Convert difference polygons to raster        
         diff_raster = Convert_Polygon_to_Raster(diff_polygon, Temp_File_Output_Location)
         
         #Create new values for diff_raster by setting them equal to lower FVA value + 1 
-        Add_raster = Add_FVA_Values_To_Raster(diff_raster, lower_FVA, higher_FVA, Temp_File_Output_Location)
+        Add_raster = Add_FVA_Value_To_Raster(diff_raster, lower_FVA, higher_FVA, Temp_File_Output_Location)
         
         #Mosaic the new raster with the higher FVA raster
         arcpy.AddMessage("Mosaicing additional data to {} raster".format(Add_raster, higher_FVA_Raster))
@@ -226,6 +231,15 @@ if __name__ == "__main__":
                                 colormap= "LAST", 
                                 background_value =-99999,
                                 nodata_value =-99999)
+        
+        #check pixel size of new raster
+
+        pixel_type = arcpy.GetRasterProperties_management(higher_FVA_Raster, "VALUETYPE").getOutput(0)
+        if pixel_type != "9":
+            arcpy.AddWarning("Output raster is not 32_BIT_FLOAT.  Please check the output raster for inconsistencies.")
+        else:
+            arcpy.AddMessage("Output raster is 32_BIT_FLOAT")
+
         
 
 
