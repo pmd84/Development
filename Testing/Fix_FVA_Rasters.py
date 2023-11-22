@@ -292,8 +292,11 @@ if __name__ == "__main__":
         #Delete temporary raster
         #arcpy.management.Delete(Add_raster)
     
-
     ## PART 2: FIXING CELL VALUES
+    #USE CELLDIFF FILES
+    # If DIFF < 0, reclassify to be +1 lower FVA
+    
+    #Or use Raster Calculator to determine difference between rasters, and then fix any values less than 0
     
     
         
