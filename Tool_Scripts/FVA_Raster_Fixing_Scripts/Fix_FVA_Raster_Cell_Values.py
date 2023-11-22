@@ -21,7 +21,7 @@ def check_out_spatial_analyst():
         arcpy.AddMessage("Exiting")
         sys.exit()
 
-def find_diff_files(QC_Output_Folder):
+def find_cellDiff_files(QC_Output_Folder):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Finding Cell Value Difference Points in QC Folder #####")
 
@@ -49,4 +49,4 @@ if __name__ == "__main__":
     QC_Output_Folder = arcpy.GetParameterAsText(1)
 
     #Get file paths for extent difference polygons
-    diffFva0_1, diffFva1_2, diffFva2_3 = find_celldiff_files(QC_Output_Folder)
+    diffFva0_1, diffFva1_2, diffFva2_3 = find_cellDiff_files(QC_Output_Folder)

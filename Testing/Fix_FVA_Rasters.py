@@ -265,7 +265,7 @@ if __name__ == "__main__":
     #Find Rasters in Geodatabase and create dictionary - Keys are FVA values, Values are Raster path
     raster_dict = Find_FVA_Rasters(FFRMS_Geodatabase)
 
-    ## FIXING RASTER EXTENTS
+    ## PART 1: FIXING RASTER EXTENTS
     #Loop through the raster comparision polygons, process each one, and add the results to the higher FVA raster if necessary
     for i, diff_polygon in enumerate([diffFva0_1, diffFva1_2, diffFva2_3]):
 
@@ -291,7 +291,10 @@ if __name__ == "__main__":
         #! Uncomment after testing
         #Delete temporary raster
         #arcpy.management.Delete(Add_raster)
-            
+    
+
+    ## PART 2: FIXING CELL VALUES
+    
     
         
 
