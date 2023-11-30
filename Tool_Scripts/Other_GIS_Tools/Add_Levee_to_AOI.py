@@ -54,7 +54,7 @@ def Check_Source_Data(Tool_Template_Folder, HUC_AOI_Erase_Area):
 
 def Convert_Rasters_to_Polygon(FVA03_raster):
     arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Converting FVA +0 and FVA0 +3 rasters to Polygon #####")
+    arcpy.AddMessage("##### Converting FVA0 +3 raster to Polygon #####")
 
     if FVA03_raster == "" or FVA03_raster == None:
         arcpy.AddError("FVA03 Raster Not Found or not provided. Please provide FVA03 (wsel_grid_3) raster")
