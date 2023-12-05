@@ -432,6 +432,7 @@ def calc_fva_diff(l_fva_raster_path, h_fva_raster_path, temp_gdb=temp_gdb):
     #Check if there are any differences below 0 between the two FVA rasters - if not, skip this FVA comparison
     min_diff_val = arcpy.Raster(min).minimum
     msg(f'Minimum value of difference raster is {min_diff_val}')
+    
     if min_diff_val >= 0:
         msg('No difference values less than 0 found - no changes will be made to {} raster'.format(h_FVA_val))
         msg('Moving on to next FVA comparison')
@@ -567,7 +568,7 @@ if __name__ == "__main__":
 
         #Check if there are any differences between the two FVA rasters - if not, skip this FVA comparison
         #Function also creates difference polygon
-        if determine_extent_difference(poly_files[i+1], poly_files[0], Temp_File_Output_Location, i+1, i) == "Pass":
+        if determine_extent_difference(poly_files[i+1], poly_files[i], Temp_File_Output_Location, i+1, i) == "Pass":
             continue
 
         #Convert difference polygons to raster

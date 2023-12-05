@@ -661,4 +661,6 @@ if __name__ == '__main__':
 
         arcpy.AddMessage(u"\u200B")
         arcpy.AddMessage("##### All AOIs Appended #####")
+        arcpy.AddMessage(u"\u200B")
+        arcpy.AddMessage("##### Script Finished #####")
 

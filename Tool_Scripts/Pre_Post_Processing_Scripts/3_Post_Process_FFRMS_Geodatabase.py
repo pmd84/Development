@@ -513,11 +513,16 @@ def Check_QC_Pass_Rate(centerline_qc_points_NFHL):
     
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("## HANDY QC STATS ##")
+    arcpy.AddMessage("Number of QC points: {0}".format(total_qc_points))
 
+    if total_qc_points == 0:
+        arcpy.AddWarning("No QC points found - check for errors in tool output folders")
+        return
+    
     num_passed_qc_points = total_qc_points - num_handy_qc_points_failed
     percent_failed = round((num_handy_qc_points_failed / total_qc_points) * 100, 2)
     percent_passed = round(100 - percent_failed, 2)
-    arcpy.AddMessage("Number of QC points: {0}".format(total_qc_points))
+
     arcpy.AddMessage("Number of QC points passed based on HANDy qc values (ELEV_DIFF < 0.5): {0}".format(num_passed_qc_points))
     arcpy.AddMessage("Percent QC points passed based on HANDy qc values: {0}%".format(percent_passed))
 
