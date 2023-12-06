@@ -13,10 +13,28 @@ from arcpy import AddMessage as msg
 from arcpy import AddWarning as warn
 from os import path as pth
 
-# Define global variables
-cur_dir = fr'{os.getcwd()}' #working directory of script / toolbox
-temp_dir = fr'{cur_dir}\temp'
-temp_gdb = fr'{temp_dir}\temp.gdb'
+def setup_workspace():
+
+    """
+    The setup_workspace function creates a lib directory in the current working directory,
+    and then creates a file geodatabase called temp.gdb within that lib directory.
+
+    :return: Nothing
+    """
+
+    title_text("Setting up Temporary Directory")
+
+    msg("Current Working Directory: {}".format(cur_dir))
+
+    # Ensure that required directories exist
+    msg("Making temp folder within Curent Working Directory")
+    if not os.path.exists(temp_dir):
+        os.mkdir(temp_dir)
+
+    # Create file geodatabase
+    msg("Creating temp.gdb within temp folder")
+    if not os.path.exists(temp_gdb):
+        mgmt.CreateFileGDB(temp_dir, 'temp.gdb', 'CURRENT')
 
 def title_text(string):
     """
@@ -206,6 +224,10 @@ def Find_FVA_Rasters(FFRMS_Geodatabase):
 
     title_text("Finding FVA Rasters in Geodatabase")
 
+    #Get current workspace
+    current_workspace = arcpy.env.workspace
+
+    #Set workspace to FFRMS Geodatabase to find Rasters
     arcpy.env.workspace = FFRMS_Geodatabase
 
     #Create dictionary of all available FVA rasters
@@ -220,11 +242,14 @@ def Find_FVA_Rasters(FFRMS_Geodatabase):
 
         if Freeboard_Val in expected_values:
             msg("FVA{}_raster: {}".format(Freeboard_Val[:2], raster))
-            raster_dict[Freeboard_Val] = raster
+            raster_dict[Freeboard_Val] = pth.join(FFRMS_Geodatabase,raster)
 
     for Freeboard_Val in expected_values:
         if Freeboard_Val not in raster_dict:
             warn("{} Raster Not Found".format(Freeboard_Val))
+
+    #Reset workspace
+    arcpy.env.workspace = current_workspace
 
     return raster_dict
 
@@ -279,7 +304,7 @@ def Convert_Polygon_to_Raster(diff_polygon, lower_FVA, higher_FVA, Temp_File_Out
     1.  Merge all difference polygons into a single multipart feature class
     2.  Convert to raster with all values equal to 1 and cell size equal to 3
     """
-
+    
     polygon_name = os.path.basename(diff_polygon)
     msg("Converting difference polygon to raster".format(polygon_name))
     diff_raster = os.path.join(Temp_File_Output_Location, "Diff_{0}_{1}_raster".format(lower_FVA, higher_FVA))
@@ -380,24 +405,56 @@ def Check_Raster_Properties(higher_FVA_Raster):
     else:
         msg("Output raster is 32_BIT_FLOAT")
 
-def setup_workspace():
+def convert_raster_to_polygon(raster, Temp_File_Output_Location, index, verbose=True):
+    """Converts a raster to a polygon shapefile."""
+    poly_file = os.path.join(Temp_File_Output_Location, f"FVA0{index}")
+    raster_int = arcpy.sa.Int(arcpy.Raster(raster))
 
+    if verbose:
+        msg("Converting FVA0{} raster to polygon".format(index))
+    
+    arcpy.conversion.RasterToPolygon(raster_int, poly_file, "NO_SIMPLIFY", "", "MULTIPLE_OUTER_PART")
+    return poly_file
+
+def determine_extent_difference(poly_higher, poly_lower, Temp_File_Output_Location, index_higher, index_lower):
     """
-    The setup_workspace function creates a lib directory in the current working directory,
-    and then creates a file geodatabase called temp.gdb within that lib directory.
+    Determines extent difference between two polygons.
 
-    :return: Nothing
+    :param poly_higher: The higher FVA polygon
+    :param poly_lower: The lower FVA polygon
+    :param Temp_File_Output_Location: The location where the temporary files will be saved
+    :param index_higher: The index of the higher FVA polygon
+    :param index_lower: The index of the lower FVA polygon
+
+    :return: "Pass" if there are no differences between the two FVA polygons, "Fail" if there are differences
+
+    :process:
+    1.  Clip the higher FVA polygon from the lower FVA polygon - leftover polygons are the extent differences
+    2.  Convert multipart polygons to singlepart polygons
+    3.  Get count of singlepart polygons
+    4.  If count is greater than 0, there are extent differences. Return "Fail"
+    5.  If count is 0, there are no extent differences. Return "Pass"
+    
     """
 
-    # Ensure that required directories exist
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
+    msg("Determining extent difference between FVA0{0} and FVA0{1}".format(index_higher, index_lower))
 
-    # Create file geodatabase
-    if not os.path.exists(temp_gdb):
-        mgmt.CreateFileGDB(temp_dir, 'temp.gdb', 'CURRENT')
+    clip_file = os.path.join(Temp_File_Output_Location, f"clipFva{index_higher}_{index_lower}")
+    diff_file = os.path.join(Temp_File_Output_Location, f"diffFva{index_higher}_{index_lower}")
 
-def calc_fva_diff(l_fva_raster_path, h_fva_raster_path, temp_gdb=temp_gdb):
+    arcpy.analysis.Erase(poly_lower, poly_higher, clip_file)
+    arcpy.management.MultipartToSinglepart(clip_file, diff_file)
+
+    feature_count = int(arcpy.GetCount_management(diff_file).getOutput(0))
+
+    if feature_count > 0:
+        msg("Differences found between FVA0{0} and FVA0{1} rasters - Fixing...".format(index_higher, index_lower))
+        return "Fail"
+    else:
+        msg(f"FVA0{index_higher} and FVA0{index_lower} extent comparison Pass!")
+        return "Pass"
+
+def calc_fva_diff(l_fva_raster_path, h_fva_raster_path, temp_gdb):
 
     """
     The calc_fva_diff function takes two rasters, a low and high FVA raster,
@@ -424,7 +481,10 @@ def calc_fva_diff(l_fva_raster_path, h_fva_raster_path, temp_gdb=temp_gdb):
     l_fva_raster = arcpy.Raster(l_fva_raster_path)
 
     title_text("Calculating FVA Difference between {} and {}".format(l_FVA_val, h_FVA_val))
-    
+
+    msg(f"Higher Raster: {h_fva_raster_path}")
+    msg(f"Lower Raster: {l_fva_raster_path}")
+
     #Find where the lower FVA is higher than the upper FVA.
     msg('Identifying differences')
     min = arcpy.sa.Minus(h_fva_raster,l_fva_raster)
@@ -474,7 +534,7 @@ def calc_fva_diff(l_fva_raster_path, h_fva_raster_path, temp_gdb=temp_gdb):
 
     #Check if there are any differences below 0 between the two FVA rasters - if not, skip this FVA comparison
     min_diff_val_fixed = arcpy.Raster(min_fixed).minimum
-    msg(f'Minimum value of difference raster is {min_diff_val}')
+    msg(f'Minimum value of difference raster is {min_diff_val_fixed}')
     if min_diff_val_fixed >= 0:
         msg('No difference values less than 0 found - {0} Raster has been fixed!'.format(h_FVA_val))
         msg('Moving on to next FVA comparison')
@@ -484,66 +544,24 @@ def calc_fva_diff(l_fva_raster_path, h_fva_raster_path, temp_gdb=temp_gdb):
 
     return h_fva_raster_path
   
-def convert_raster_to_polygon(raster, Temp_File_Output_Location, index, verbose=True):
-    """Converts a raster to a polygon shapefile."""
-    poly_file = os.path.join(Temp_File_Output_Location, f"FVA0{index}")
-    raster_int = arcpy.sa.Int(arcpy.Raster(raster))
-
-    if verbose:
-        msg("Converting FVA0{} raster to polygon".format(index))
- 
-    arcpy.conversion.RasterToPolygon(raster_int, poly_file, "NO_SIMPLIFY", "", "MULTIPLE_OUTER_PART")
-    return poly_file
-
-def determine_extent_difference(poly_higher, poly_lower, Temp_File_Output_Location, index_higher, index_lower):
-    """
-    Determines extent difference between two polygons.
-
-    :param poly_higher: The higher FVA polygon
-    :param poly_lower: The lower FVA polygon
-    :param Temp_File_Output_Location: The location where the temporary files will be saved
-    :param index_higher: The index of the higher FVA polygon
-    :param index_lower: The index of the lower FVA polygon
-
-    :return: "Pass" if there are no differences between the two FVA polygons, "Fail" if there are differences
-
-    :process:
-    1.  Clip the higher FVA polygon from the lower FVA polygon - leftover polygons are the extent differences
-    2.  Convert multipart polygons to singlepart polygons
-    3.  Get count of singlepart polygons
-    4.  If count is greater than 0, there are extent differences. Return "Fail"
-    5.  If count is 0, there are no extent differences. Return "Pass"
-    
-    """
-
-    msg("Determining extent difference between FVA0{0} and FVA0{1}".format(index_higher, index_lower))
-
-    clip_file = os.path.join(Temp_File_Output_Location, f"clipFva{index_higher}_{index_lower}")
-    diff_file = os.path.join(Temp_File_Output_Location, f"diffFva{index_higher}_{index_lower}")
-
-    arcpy.analysis.Erase(poly_lower, poly_higher, clip_file)
-    arcpy.management.MultipartToSinglepart(clip_file, diff_file)
-
-    feature_count = int(arcpy.GetCount_management(diff_file).getOutput(0))
-
-    if feature_count > 0:
-        msg("Differences found between FVA0{0} and FVA0{1} rasters - Fixing...".format(index_higher, index_lower))
-        return "Fail"
-    else:
-        msg(f"FVA0{index_higher} and FVA0{index_lower} extent comparison Pass!")
-        return "Pass"
-
 if __name__ == "__main__":
     
+    # Set up temp workspace
+    cur_dir = fr'{os.getcwd()}' #working directory of script / toolbox
+    temp_dir = fr'{cur_dir}\temp'
+    temp_gdb = fr'{temp_dir}\temp.gdb'
+
     #Get tool input parameters
     FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
+    
     #Temp_File_Output_Location = FFRMS_Geodatabase
-    Temp_File_Output_Location = "in_memory"
+    Temp_File_Output_Location = temp_gdb
+    #Temp_File_Output_Location = "in_memory"
 
     #Set Environment
     check_out_spatial_analyst()
     setup_workspace()
-    arcpy.env.workspace = FFRMS_Geodatabase
+    arcpy.env.workspace = temp_gdb
     arcpy.env.overwriteOutput = True
 
     #Find Rasters in Geodatabase and create dictionary - Keys are FVA values, Values are Raster path
@@ -559,8 +577,6 @@ if __name__ == "__main__":
     
         lower_FVA = "0{}FVA".format(i)
         higher_FVA = "0{}FVA".format(i+1)
-        lower_fva_raster = raster_list[i]
-        higher_fva_raster = raster_list[i+1]
         lower_polygon = poly_files[i]
         higher_polygon = poly_files[i+1]
 
@@ -585,20 +601,21 @@ if __name__ == "__main__":
         Check_Raster_Properties(higher_FVA_Raster)
 
         #Update higher FVA Polygon based on new raster extents
-        convert_raster_to_polygon(higher_fva_raster, Temp_File_Output_Location, i+1, verbose=False)
+        convert_raster_to_polygon(higher_FVA_Raster, Temp_File_Output_Location, i+1, verbose=False)
 
         #Delete temporary raster
         mgmt.Delete(Add_raster)
     
     ## PART 2: FIXING CELL VALUES
     #Check if there are any cell differences between the FVA rasters according to the QC point shapefile
-    fva_1 = calc_fva_diff(raster_list[0], raster_list[1])
-    fva_2 = calc_fva_diff(fva_1, raster_list[2])
-    fva_3 = calc_fva_diff(fva_2, raster_list[3])
+    fva_1 = calc_fva_diff(raster_list[0], raster_list[1], temp_gdb)
+    fva_2 = calc_fva_diff(fva_1, raster_list[2], temp_gdb)
+    fva_3 = calc_fva_diff(fva_2, raster_list[3], temp_gdb)
 
+    #! Uncomment after testing
     #Delete temporary files
-    mgmt.Delete("in_memory")
-    shutil.rmtree(temp_dir)
+    #mgmt.Delete("in_memory")
+    #shutil.rmtree(temp_dir)
     
     title_text("Cell values corrected.")
     title_text('Script Complete')
