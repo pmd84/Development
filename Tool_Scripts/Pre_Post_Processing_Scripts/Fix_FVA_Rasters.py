@@ -636,7 +636,21 @@ def calc_fva_diff(l_fva_raster_path, h_fva_raster_path, temp_gdb):
 
     return h_fva_raster_path
 
-def check_and_fix_raster_extent_differences(poly_files, Temp_File_Output_Location, raster_list):
+def check_and_fix_raster_extent_differences(Temp_File_Output_Location, raster_list):
+    """
+    Checks and fixes the extent differences between FVA rasters.
+
+    Parameters:
+    Temp_File_Output_Location (str): Location to store temporary files.
+    raster_list (list): List of raster files.
+
+    Returns:
+    None
+    """
+
+    title_text("Converting FVA Rasters to Polygon")
+    poly_files = [convert_raster_to_polygon(raster, Temp_File_Output_Location, i) for i, raster in enumerate(raster_list)]
+    
     for i in range(len(raster_list) - 1):
     
         lower_FVA = "0{}FVA".format(i)
@@ -695,11 +709,7 @@ if __name__ == "__main__":
     raster_list = [raster_dict["00FVA"], raster_dict["01FVA"], raster_dict["02FVA"], raster_dict["03FVA"]]
 
     ## PART 1: FIXING RASTER EXTENTS
-    # Convert rasters to polygon
-    title_text("Converting FVA Rasters to Polygon")
-    poly_files = [convert_raster_to_polygon(raster, Temp_File_Output_Location, i) for i, raster in enumerate(raster_list)]
-
-    check_and_fix_raster_extent_differences(poly_files, Temp_File_Output_Location, raster_list)
+    #check_and_fix_raster_extent_differences(Temp_File_Output_Location, raster_list)
     
     ## PART 2: FIXING CELL VALUES
     #Check if there are any cell differences between the FVA rasters according to the QC point shapefile
@@ -707,7 +717,9 @@ if __name__ == "__main__":
     # fva_2 = calc_fva_diff(fva_1, raster_list[2], temp_gdb)
     # fva_3 = calc_fva_diff(fva_2, raster_list[3], temp_gdb)
 
-    #! Testing
+    #TODO: Test!
+    title_text("fixing cell values")
+
     calc_fva_diff2(raster_list)
 
     #! Uncomment after testing
