@@ -635,36 +635,8 @@ def calc_fva_diff(l_fva_raster_path, h_fva_raster_path, temp_gdb):
         msg('Moving on to next FVA comparison')
 
     return h_fva_raster_path
-  
-if __name__ == "__main__":
-    
-    # Set up temp workspace
-    cur_dir = fr'{os.getcwd()}' #working directory of script / toolbox
-    temp_dir = fr'{cur_dir}\temp'
-    temp_gdb = fr'{temp_dir}\temp.gdb'
 
-    #Get tool input parameters
-    FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
-    
-    #Temp_File_Output_Location = FFRMS_Geodatabase
-    Temp_File_Output_Location = temp_gdb
-    #Temp_File_Output_Location = "in_memory"
-
-    #Set Environment
-    check_out_spatial_analyst()
-    setup_workspace()
-    arcpy.env.workspace = temp_gdb
-    arcpy.env.overwriteOutput = True
-
-    #Find Rasters in Geodatabase and create dictionary - Keys are FVA values, Values are Raster path
-    raster_dict = Find_FVA_Rasters(FFRMS_Geodatabase)
-    raster_list = [raster_dict["00FVA"], raster_dict["01FVA"], raster_dict["02FVA"], raster_dict["03FVA"]]
-
-    ## PART 1: FIXING RASTER EXTENTS
-    # Convert rasters to polygon
-    title_text("Converting FVA Rasters to Polygon")
-    poly_files = [convert_raster_to_polygon(raster, Temp_File_Output_Location, i) for i, raster in enumerate(raster_list)]
-
+def check_and_fix_raster_extent_differences(poly_files, Temp_File_Output_Location, raster_list):
     for i in range(len(raster_list) - 1):
     
         lower_FVA = "0{}FVA".format(i)
@@ -696,7 +668,38 @@ if __name__ == "__main__":
         convert_raster_to_polygon(higher_FVA_Raster, Temp_File_Output_Location, i+1, verbose=False)
 
         #Delete temporary raster
-        mgmt.Delete(Add_raster)
+        mgmt.Delete(Add_raster)  
+
+
+if __name__ == "__main__":
+    
+    # Set up temp workspace
+    cur_dir = fr'{os.getcwd()}' #working directory of script / toolbox
+    temp_dir = fr'{cur_dir}\temp'
+    temp_gdb = fr'{temp_dir}\temp.gdb'
+
+    #Get tool input parameters
+    FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
+    
+    Temp_File_Output_Location = temp_gdb
+    #Temp_File_Output_Location = "in_memory"
+
+    #Set Environment
+    check_out_spatial_analyst()
+    setup_workspace()
+    arcpy.env.workspace = temp_gdb
+    arcpy.env.overwriteOutput = True
+
+    #Find Rasters in Geodatabase and create dictionary - Keys are FVA values, Values are Raster path
+    raster_dict = Find_FVA_Rasters(FFRMS_Geodatabase)
+    raster_list = [raster_dict["00FVA"], raster_dict["01FVA"], raster_dict["02FVA"], raster_dict["03FVA"]]
+
+    ## PART 1: FIXING RASTER EXTENTS
+    # Convert rasters to polygon
+    title_text("Converting FVA Rasters to Polygon")
+    poly_files = [convert_raster_to_polygon(raster, Temp_File_Output_Location, i) for i, raster in enumerate(raster_list)]
+
+    check_and_fix_raster_extent_differences(poly_files, Temp_File_Output_Location, raster_list)
     
     ## PART 2: FIXING CELL VALUES
     #Check if there are any cell differences between the FVA rasters according to the QC point shapefile
