@@ -454,87 +454,97 @@ def determine_extent_difference(poly_higher, poly_lower, Temp_File_Output_Locati
         msg(f"FVA0{index_higher} and FVA0{index_lower} extent comparison Pass!")
         return "Pass"
 
-def identify_cell_differences(FVA_higher_raster, FVA_lower_raster):
+def create_difference_raster(FVA_higher_raster_path, FVA_lower_raster_path):
     #Find where the lower FVA is higher than the upper FVA.
     msg('Identifying differences')
+
+    #Create Raster instance
+    FVA_lower_raster = arcpy.Raster(FVA_lower_raster_path)
+    FVA_higher_raster = arcpy.Raster(FVA_higher_raster_path)
+    
+    #Determine differences
     min = arcpy.sa.Minus(FVA_higher_raster,FVA_lower_raster)
 
-    #Check if there are any differences below 0 between the two FVA rasters - if not, skip this FVA comparison
+    #Check if there are any differences below 0 between the two FVA rasters
     min_diff_val = arcpy.Raster(min).minimum
     msg(f'Minimum value of difference raster is {min_diff_val}')
 
     return min_diff_val, min
+
+def set_difference_raster_to_FVA00_values(min, FVA00_raster):
+    msg('Getting reference to FVA00 Raster')
+    con = arcpy.sa.Con(
+        in_conditional_raster=min,
+        in_true_raster_or_constant=FVA00_raster,
+        in_false_raster_or_constant=None,
+        where_clause="VALUE < 0")
+    return con
+    
+def update_cells_and_mosaic(con, target_raster_path, adjustment):
+    raster_FVA = os.path.basename(target_raster_path).split('_')[3]
+    msg(f'Fixing {raster_FVA} raster values by adding {adjustment} foot to FVA00')
+
+    plus = arcpy.sa.Plus(con, adjustment)
+
+    # Mosaic Raster Calculation result into a copy of the h_fva raster.
+    msg(f'Mosaicing fixed cells into the {raster_FVA} raster')
+        #mosaic the fixed values into existing higher FVA raster
+    mgmt.Mosaic(
+        inputs=plus,
+        target=target_raster_path,
+        mosaic_type="LAST",
+        colormap="FIRST",
+        background_value=-99999,
+        nodata_value=-99999,
+        onebit_to_eightbit="NONE",
+        mosaicking_tolerance=0,
+        MatchingMethod="NONE"
+    )
+
 def calc_fva_diff2(raster_list):
 
-    for i in range(len(raster_list)-1): 
-        lower_FVA = "0{}FVA".format(i)
-        higher_FVA = "0{}FVA".format(i+1)
+    for i in range(1, len(raster_list)): 
+        lower_FVA = "0{}FVA".format(i-1)
+        higher_FVA = "0{}FVA".format(i)
 
-        FVA_lower_raster_path = raster_list[i]
-        FVA_higher_raster_path = raster_list[i+1]
-
+        FVA_lower_raster_path = raster_list[i-1]
+        FVA_higher_raster_path = raster_list[i]
         FVA00_raster = arcpy.Raster(raster_list[0])
-        FVA_lower_raster = arcpy.Raster(FVA_lower_raster_path)
-        FVA_higher_raster = arcpy.Raster(FVA_higher_raster_path)
 
         title_text("Calculating FVA Difference between {} and {}".format(lower_FVA, higher_FVA))
-
         msg(f"Higher Raster: {FVA_higher_raster_path}")
         msg(f"Lower Raster: {FVA_lower_raster_path}")
 
-        min_diff_val, min = identify_cell_differences(FVA_higher_raster, FVA_lower_raster)
-        
+        #Determine if there are any negative differences, and provide difference raster
+        min_diff_val, min = create_difference_raster(FVA_higher_raster_path, FVA_lower_raster_path)
         if min_diff_val >= 0:
             msg('No difference values less than 0 found - no changes will be made to {} raster'.format(higher_FVA))
             msg('Moving on to next FVA comparison')
             continue
-        
         msg(f'Cell Value Descrepancies found between {lower_FVA} and {higher_FVA} - Fixing...')
         
-        con = arcpy.sa.Con(
-            in_conditional_raster=min,
-            in_true_raster_or_constant=FVA00_raster,
-            in_false_raster_or_constant=None,
-            where_clause="VALUE < 0")
+        #Set difference raster values to FVA00 values
+        con = set_difference_raster_to_FVA00_values(min, FVA00_raster)
 
-        def update_cells_and_mosaic(con, raster_path, adjustment):
-            msg('Fixing higher FVA values by adding 1 foot to lower FVA values')
-            plus = arcpy.sa.Plus(con, adjustment)
+        #Fix all FVA rasters below the current higher FVA
+        if i == 1: #FVA01 is highest raster
+            update_cells_and_mosaic(con, raster_list[i], 1)     #Update FVA01
+        elif i == 2: #FVA02 is highest raster
+            update_cells_and_mosaic(con, raster_list[i-1], 2)   #Update FVA01
+            update_cells_and_mosaic(con, raster_list[i], 1)     #Update FVA02
+        elif i == 3: #FVA03 is highest raster
+            update_cells_and_mosaic(con, raster_list[i-2], 3)   #Update FVA01
+            update_cells_and_mosaic(con, raster_list[i-1], 2)   #Update FVA02
+            update_cells_and_mosaic(con, raster_list[i], 1)     #Update FVA03
 
-            # Mosaic Raster Calculation result into a copy of the h_fva raster.
-            msg('Mosaicing fixed results into the higher FVA raster')
-                #mosaic the fixed values into existing higher FVA raster
-            mgmt.Mosaic(
-                inputs=plus,
-                target=raster_path,
-                mosaic_type="LAST",
-                colormap="FIRST",
-                background_value=-99999,
-                nodata_value=-99999,
-                onebit_to_eightbit="NONE",
-                mosaicking_tolerance=0,
-                MatchingMethod="NONE"
-            )
-            
-        
-        msg('Fixing higher FVA values by adding 1 foot to lower FVA values')
-        plus = arcpy.sa.Plus(con, 1)
-
-        # Mosaic Raster Calculation result into a copy of the h_fva raster.
-        msg('Mosaicing fixed results into the higher FVA raster')
-            #mosaic the fixed values into existing higher FVA raster
-        mgmt.Mosaic(
-            inputs=plus,
-            target=h_fva_raster_path,
-            mosaic_type="LAST",
-            colormap="FIRST",
-            background_value=-99999,
-            nodata_value=-99999,
-            onebit_to_eightbit="NONE",
-            mosaicking_tolerance=0,
-            MatchingMethod="NONE"
-        )
-
+        #Check to see if this actually fixed the problem!
+        min_diff_val_fixed, min = create_difference_raster(FVA_higher_raster_path, FVA_lower_raster_path)
+        if min_diff_val_fixed >= 0:
+            msg('No difference values less than 0 found - {0} Raster has been fixed!'.format(higher_FVA))
+            msg('Moving on to next FVA comparison')
+        else:
+            msg('Differences still exist - Raster has not been fixed. Please check raster for inconsistencies')
+            msg('Moving on to next FVA comparison')
 
 def calc_fva_diff(l_fva_raster_path, h_fva_raster_path, temp_gdb):
 
@@ -690,9 +700,12 @@ if __name__ == "__main__":
     
     ## PART 2: FIXING CELL VALUES
     #Check if there are any cell differences between the FVA rasters according to the QC point shapefile
-    fva_1 = calc_fva_diff(raster_list[0], raster_list[1], temp_gdb)
-    fva_2 = calc_fva_diff(fva_1, raster_list[2], temp_gdb)
-    fva_3 = calc_fva_diff(fva_2, raster_list[3], temp_gdb)
+    # fva_1 = calc_fva_diff(raster_list[0], raster_list[1], temp_gdb)
+    # fva_2 = calc_fva_diff(fva_1, raster_list[2], temp_gdb)
+    # fva_3 = calc_fva_diff(fva_2, raster_list[3], temp_gdb)
+
+    #! Testing
+    calc_fva_diff2(raster_list)
 
     #! Uncomment after testing
     #Delete temporary files
