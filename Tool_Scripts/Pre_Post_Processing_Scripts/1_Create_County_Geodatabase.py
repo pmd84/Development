@@ -360,7 +360,7 @@ def Populate_L_Source_Cit(FFRMS_Geodatabase, county_name, state_name, state_abrv
         "PUB_DATE": "{0}".format(pub_date),
         "WEBLINK": r"https://hazards.fema.gov/",
         "MEDIA": "Digital",
-        "VERSION_ID": "2.6.5.6",
+        "VERSION_ID": "1.0.0.0.0",
         "CASE_NO": "NP",
         "MIP_CASE_N": "NP"
     }
