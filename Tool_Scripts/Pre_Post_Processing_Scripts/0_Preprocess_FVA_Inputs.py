@@ -322,6 +322,8 @@ def subset_L_XS_Elev_by_XS_LN_ID(L_XS_Elev_table, HUC8_FVA_S_XS, Output_df, feat
         arcpy.conversion.ExportTable(in_table=L_XS_Elev_table, out_table=Output_df, where_clause="XS_LN_ID IN {0}".format(tuple(XS_LN_ID_list)))
         arcpy.AddMessage("There are {0} matching entries in {1} L_XS_Elev table".format(arcpy.management.GetCount(Output_df)[0], feature_type))
 
+    return Output_df
+
 def Create_L_XS_Tables(HUC8_list, L_XS_Elev):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Creating L_XS_Elev files #####")
@@ -332,18 +334,28 @@ def Create_L_XS_Tables(HUC8_list, L_XS_Elev):
 
         #Check that FVA_S_XS exists in HUC8 folder
         HUC8_FVA_S_XS = os.path.join(HUC8_folder, "FVA_S_XS_{0}.shp".format(HUC8))
+        convert_folder = os.path.join(HUC8_folder, "Convert_elevations_in_these_files_from_NGVD29_to_NAVD88")
         if not arcpy.Exists(HUC8_FVA_S_XS):
-            #TODO: ADD L_XS_ELEV Table for bad NGVD29 vals
-            arcpy.AddMessage("No FVA_S_XS_{0}.shp found in HUC8 folder. L_XS_Elev will not be generated.".format(HUC8))
-            continue
+            #Check in convert folder first - save output in convert folder
+            HUC8_FVA_S_XS = os.path.join(convert_folder, "FVA_S_XS_{0}.shp".format(HUC8))
+            FVA_output_dbf = os.path.join(convert_folder,"FVA_L_XS_Elev.dbf")
+
+            if not arcpy.Exists(HUC8_FVA_S_XS):
+                #if not in convert folder, this HUC gets skipped for L_XS_Elev
+                arcpy.AddMessage("No FVA_S_XS_{0}.shp found in HUC8 folder. L_XS_Elev will not be generated.".format(HUC8))
+                continue
+            else:
+                arcpy.AddMessage("Found FVA_XS in NGVD29 Convert folder".format(HUC8))
+        else:
+            arcpy.AddMessage("Found FVA_XS in HUC8 folder".format(HUC8))
+            FVA_output_dbf = os.path.join(HUC8_folder,"FVA_L_XS_Elev.dbf")
         
         #Set paths for output L_XS_Elev files
         NFHL_output_dbf = os.path.join("in_memory","NFHL_L_XS_Elev")
-        FVA_output_dbf = os.path.join(HUC8_folder,"FVA_L_XS_Elev.dbf")
 
         #Subset NFHL L_XS_Elev using S_XS
         try:
-            subset_L_XS_Elev_by_XS_LN_ID(L_XS_Elev, HUC8_FVA_S_XS, NFHL_output_dbf, "NFHL")
+            NFHL_output_dbf = subset_L_XS_Elev_by_XS_LN_ID(L_XS_Elev, HUC8_FVA_S_XS, NFHL_output_dbf, "NFHL")
         except:
             arcpy.AddMessage("No matching NFHL L_XS_Elev found")
             continue
@@ -359,10 +371,13 @@ def Create_L_XS_Tables(HUC8_list, L_XS_Elev):
             arcpy.management.Delete(FVA_output_dbf)
             continue
         
-        #Check vertical datum for FVA L_XS_Elev
-        NGVD29 = Check_Elev_Datum(FVA_output_dbf, "FVA_L_XS_Elev")
-        if NGVD29 == True:
-            move_to_convert_folder(FVA_output_dbf, HUC8_folder)
+        #Check vertical datum for FVA L_XS_Elev - if for some reason S_XS has no NGVD29 vals but L_XS_Elev does
+        if arcpy.Exists(os.path.join(HUC8_folder,"FVA_L_XS_Elev.dbf")): #If there is an L_XS_Elev table not in the convert folder
+            NGVD29 = Check_Elev_Datum(FVA_output_dbf, "FVA_L_XS_Elev")
+            if NGVD29 == True:
+                ngvd29_l_xs_table = os.path.join(convert_folder, "FVA_L_XS_Elev.dbf")
+                arcpy.conversion.ExportTable(in_table=FVA_output_dbf,out_table=ngvd29_l_xs_table)
+                arcpy.management.Delete(FVA_output_dbf)
 
 def Get_Stantec_County_HUC8_Scope(Stantec_HUC_Tracker, county_name, state_abrv, county_field):
 #use cursor to loop through HUC tracker, looking at county field and huc8 field
