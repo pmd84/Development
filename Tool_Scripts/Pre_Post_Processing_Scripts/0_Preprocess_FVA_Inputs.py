@@ -333,6 +333,7 @@ def Create_L_XS_Tables(HUC8_list, L_XS_Elev):
         #Check that FVA_S_XS exists in HUC8 folder
         HUC8_FVA_S_XS = os.path.join(HUC8_folder, "FVA_S_XS_{0}.shp".format(HUC8))
         if not arcpy.Exists(HUC8_FVA_S_XS):
+            #TODO: ADD L_XS_ELEV Table for bad NGVD29 vals
             arcpy.AddMessage("No FVA_S_XS_{0}.shp found in HUC8 folder. L_XS_Elev will not be generated.".format(HUC8))
             continue
         

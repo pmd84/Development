@@ -654,13 +654,22 @@ if __name__ == '__main__':
                 loop_start = 1
             else:
                 loop_start = 0
-            
+
             for HUC, AOI_Feature in list(HUC8_AOI_dict.items())[loop_start:]:
-                arcpy.AddMessage("Appending HUC8 {0} AOIs".format(HUC))
-                arcpy.management.Append(AOI_Feature, AOI_Target, "NO_TEST")
+                arcpy.AddMessage("Clipping and Appending HUC8 {0} AOIs".format(HUC))
+                
+                # Clipping AOI to County Boundary
+                Clipped_AOI = "in_memory\\Clipped_AOI"  # Temporary in-memory storage for clipped AOI
+                try:
+                    arcpy.analysis.Clip(AOI_Feature, County_Boundary, Clipped_AOI)
+                    arcpy.management.Append(Clipped_AOI, AOI_Target, "NO_TEST")
+                except Exception as e:
+                    arcpy.AddWarning(f"Failed to clip AOIs in HUC {HUC} - please manually clip to county boundary")
+                    arcpy.management.Append(AOI_Feature, AOI_Target, "NO_TEST")
 
         arcpy.AddMessage(u"\u200B")
         arcpy.AddMessage("##### All AOIs Appended #####")
+
         arcpy.AddMessage(u"\u200B")
         arcpy.AddMessage("##### Script Finished #####")
 

@@ -116,12 +116,12 @@ def find_cellDiff_files(QC_Output_Folder):
 
     return cellDiff1_0, cellDiff2_1, cellDiff3_2
 
-def Convert_Rasters_to_Polygon(FFRMS_Geodatabase, Temp_File_Output_Location):
+def Convert_Rasters_to_Polygon(FFRMS_Geodatabase, temp_gdb):
     """
     The Convert_Rasters_to_Polygon function converts the FVA rasters to polygon features.
 
     :param FFRMS_Geodatabase: The geodatabase where the FVA rasters are located
-    :param Temp_File_Output_Location: The location where the temporary files will be saved
+    :param temp_gdb: The location where the temporary files will be saved
 
     :return: A dictionary of the FVA polygons. Keys are FVA values, Values are polygon path
 
@@ -167,12 +167,12 @@ def Convert_Rasters_to_Polygon(FFRMS_Geodatabase, Temp_File_Output_Location):
 
             #Convert to Polygon
             conversion_type = "MULTIPLE_OUTER_PART"
-            output_temp_polygon = os.path.join(Temp_File_Output_Location, "{0}_polygon".format(raster_name))
+            output_temp_polygon = os.path.join(temp_gdb, "{0}_polygon".format(raster_name))
             FVA_polygon = arcpy.RasterToPolygon_conversion(in_raster=FVA_raster_int, out_polygon_features=output_temp_polygon, 
                                                         simplify="SIMPLIFY", create_multipart_features=conversion_type)
             
             #Dissolve
-            output_dissolved_polygon = os.path.join(Temp_File_Output_Location, "FVA{0}_polygon".format(FVA_value))
+            output_dissolved_polygon = os.path.join(temp_gdb, "FVA{0}_polygon".format(FVA_value))
             try:
                 mgmt.Dissolve(in_features=FVA_polygon, out_feature_class=output_dissolved_polygon)
 
@@ -192,16 +192,16 @@ def Convert_Rasters_to_Polygon(FFRMS_Geodatabase, Temp_File_Output_Location):
 
     FVA_Polygon_Dict = {}
     if "00FVA" in raster_dict:
-        FVA_Polygon_Dict["00FVA"] = os.path.join(Temp_File_Output_Location, "FVA00_polygon")
+        FVA_Polygon_Dict["00FVA"] = os.path.join(temp_gdb, "FVA00_polygon")
 
     if "01FVA" in raster_dict:
-        FVA_Polygon_Dict["01FVA"] = os.path.join(Temp_File_Output_Location, "FVA01_polygon")
+        FVA_Polygon_Dict["01FVA"] = os.path.join(temp_gdb, "FVA01_polygon")
 
     if "02FVA" in raster_dict:
-        FVA_Polygon_Dict["02FVA"] = os.path.join(Temp_File_Output_Location, "FVA02_polygon")
+        FVA_Polygon_Dict["02FVA"] = os.path.join(temp_gdb, "FVA02_polygon")
 
     if "03FVA" in raster_dict:
-        FVA_Polygon_Dict["03FVA"] = os.path.join(Temp_File_Output_Location, "FVA03_polygon")
+        FVA_Polygon_Dict["03FVA"] = os.path.join(temp_gdb, "FVA03_polygon")
 
     return FVA_Polygon_Dict
 
@@ -246,12 +246,14 @@ def Find_FVA_Rasters(FFRMS_Geodatabase):
 
     for Freeboard_Val in expected_values:
         if Freeboard_Val not in raster_dict:
-            warn("{} Raster Not Found".format(Freeboard_Val))
+            arcpy.AddError("{} Raster Not Found".format(Freeboard_Val))
+
+    raster_list = [raster_dict["00FVA"], raster_dict["01FVA"], raster_dict["02FVA"], raster_dict["03FVA"]]
 
     #Reset workspace
     arcpy.env.workspace = current_workspace
 
-    return raster_dict
+    return raster_list
 
 def Check_FVA_Difference_Polygon(lower_FVA, higher_FVA, diff_polygon):
     """
@@ -289,14 +291,14 @@ def Check_FVA_Difference_Polygon(lower_FVA, higher_FVA, diff_polygon):
         msg("Changes to {} raster needed".format(higher_FVA))
         return True
 
-def Convert_Polygon_to_Raster(diff_polygon, lower_FVA, higher_FVA, Temp_File_Output_Location):
+def Convert_Polygon_to_Raster(diff_polygon, lower_FVA, higher_FVA, temp_gdb):
     """
     The Convert_Polygon_to_Raster function converts the difference polygon to a raster.
 
     :param diff_polygon: The difference polygon created by the QC tool
     :param lower_FVA: The lower FVA raster
     :param higher_FVA: The higher FVA raster
-    :param Temp_File_Output_Location: The location where the temporary files will be saved
+    :param temp_gdb: The location where the temporary files will be saved
 
     :return: The difference raster
 
@@ -307,11 +309,11 @@ def Convert_Polygon_to_Raster(diff_polygon, lower_FVA, higher_FVA, Temp_File_Out
     
     polygon_name = os.path.basename(diff_polygon)
     msg("Converting difference polygon to raster".format(polygon_name))
-    diff_raster = os.path.join(Temp_File_Output_Location, "Diff_{0}_{1}_raster".format(lower_FVA, higher_FVA))
+    diff_raster = os.path.join(temp_gdb, "Diff_{0}_{1}_raster".format(lower_FVA, higher_FVA))
 
     #merge all polygons into a single multipart feature class
     arcpy.MakeFeatureLayer_management(diff_polygon, "diff_layer")
-    merged_polygon = os.path.join(Temp_File_Output_Location, "Merged_{0}_{1}_diff_polygon".format(lower_FVA, higher_FVA))
+    merged_polygon = os.path.join(temp_gdb, "Merged_{0}_{1}_diff_polygon".format(lower_FVA, higher_FVA))
     arcpy.Merge_management(inputs="diff_layer", output=merged_polygon)
 
     #print out fields of merged polygon
@@ -405,9 +407,9 @@ def Check_Raster_Properties(higher_FVA_Raster):
     else:
         msg("Output raster is 32_BIT_FLOAT")
 
-def convert_raster_to_polygon(raster, Temp_File_Output_Location, index, verbose=True):
+def convert_raster_to_polygon(raster, temp_gdb, index, verbose=True):
     """Converts a raster to a polygon shapefile."""
-    poly_file = os.path.join(Temp_File_Output_Location, f"FVA0{index}")
+    poly_file = os.path.join(temp_gdb, f"FVA0{index}")
     raster_int = arcpy.sa.Int(arcpy.Raster(raster))
 
     if verbose:
@@ -416,13 +418,13 @@ def convert_raster_to_polygon(raster, Temp_File_Output_Location, index, verbose=
     arcpy.conversion.RasterToPolygon(raster_int, poly_file, "NO_SIMPLIFY", "", "MULTIPLE_OUTER_PART")
     return poly_file
 
-def determine_extent_difference(poly_higher, poly_lower, Temp_File_Output_Location, index_higher, index_lower):
+def determine_extent_difference(poly_higher, poly_lower, temp_gdb, index_higher, index_lower):
     """
     Determines extent difference between two polygons.
 
     :param poly_higher: The higher FVA polygon
     :param poly_lower: The lower FVA polygon
-    :param Temp_File_Output_Location: The location where the temporary files will be saved
+    :param temp_gdb: The location where the temporary files will be saved
     :param index_higher: The index of the higher FVA polygon
     :param index_lower: The index of the lower FVA polygon
 
@@ -439,8 +441,8 @@ def determine_extent_difference(poly_higher, poly_lower, Temp_File_Output_Locati
 
     msg("Determining extent difference between FVA0{0} and FVA0{1}".format(index_higher, index_lower))
 
-    clip_file = os.path.join(Temp_File_Output_Location, f"clipFva{index_higher}_{index_lower}")
-    diff_file = os.path.join(Temp_File_Output_Location, f"diffFva{index_higher}_{index_lower}")
+    clip_file = os.path.join(temp_gdb, f"clipFva{index_higher}_{index_lower}")
+    diff_file = os.path.join(temp_gdb, f"diffFva{index_higher}_{index_lower}")
 
     arcpy.analysis.Erase(poly_lower, poly_higher, clip_file)
     arcpy.management.MultipartToSinglepart(clip_file, diff_file)
@@ -471,11 +473,13 @@ def create_difference_raster(FVA_higher_raster_path, FVA_lower_raster_path):
 
     return min_diff_val, min
 
-def set_difference_raster_to_FVA00_values(min, FVA00_raster):
-    msg('Getting reference to FVA00 Raster')
+def set_difference_raster_to_lower_FVA_values(min, FVA_lower_raster_path):
+    
+    lower_FVA_raster = arcpy.Raster(FVA_lower_raster_path)
+    msg('Referencing lower FVA Raster values')
     con = arcpy.sa.Con(
         in_conditional_raster=min,
-        in_true_raster_or_constant=FVA00_raster,
+        in_true_raster_or_constant=lower_FVA_raster,
         in_false_raster_or_constant=None,
         where_clause="VALUE < 0")
     return con
@@ -501,7 +505,7 @@ def update_cells_and_mosaic(con, target_raster_path, adjustment):
         MatchingMethod="NONE"
     )
 
-def calc_fva_diff2(raster_list):
+def calc_fva_diff2(raster_list, temp_gdb):
 
     for i in range(1, len(raster_list)): 
         lower_FVA = "0{}FVA".format(i-1)
@@ -509,11 +513,11 @@ def calc_fva_diff2(raster_list):
 
         FVA_lower_raster_path = raster_list[i-1]
         FVA_higher_raster_path = raster_list[i]
-        FVA00_raster = arcpy.Raster(raster_list[0])
+        FVA0_raster_path = raster_list[0]
 
         title_text("Calculating FVA Difference between {} and {}".format(lower_FVA, higher_FVA))
-        msg(f"Higher Raster: {FVA_higher_raster_path}")
-        msg(f"Lower Raster: {FVA_lower_raster_path}")
+        msg(f"Higher Raster: {pth.basename(FVA_higher_raster_path)}")
+        msg(f"Lower Raster: {pth.basename(FVA_lower_raster_path)}")
 
         #Determine if there are any negative differences, and provide difference raster
         min_diff_val, min = create_difference_raster(FVA_higher_raster_path, FVA_lower_raster_path)
@@ -523,28 +527,62 @@ def calc_fva_diff2(raster_list):
             continue
         msg(f'Cell Value Descrepancies found between {lower_FVA} and {higher_FVA} - Fixing...')
         
-        #Set difference raster values to FVA00 values
-        con = set_difference_raster_to_FVA00_values(min, FVA00_raster)
+        #Set starting point to always fix FVA01 Raster first
+        con = set_difference_raster_to_lower_FVA_values(min, FVA0_raster_path) #Set diff to FVA00 values
 
         #Fix all FVA rasters below the current higher FVA
         if i == 1: #FVA01 is highest raster
-            update_cells_and_mosaic(con, raster_list[i], 1)     #Update FVA01
-        elif i == 2: #FVA02 is highest raster
-            update_cells_and_mosaic(con, raster_list[i-1], 2)   #Update FVA01
-            update_cells_and_mosaic(con, raster_list[i], 1)     #Update FVA02
-        elif i == 3: #FVA03 is highest raster
-            update_cells_and_mosaic(con, raster_list[i-2], 3)   #Update FVA01
-            update_cells_and_mosaic(con, raster_list[i-1], 2)   #Update FVA02
-            update_cells_and_mosaic(con, raster_list[i], 1)     #Update FVA03
+            msg("Fixing FVA01 Raster")
+            update_cells_and_mosaic(con, raster_list[i], 1) #Update FVA01
 
+        elif i == 2: #FVA02 is highest raster
+            msg("Fixing FVA01 first")
+            update_cells_and_mosaic(con, raster_list[i-1], 1)   #Update FVA01 first
+
+            msg("Fixing FVA02 Raster")
+            min_diff_val, min = create_difference_raster(raster_list[i], raster_list[i-1]) #compare FVA02 and FVA01
+            if min_diff_val <= 0: #if there are any negative values - fix them
+                con = set_difference_raster_to_lower_FVA_values(min, raster_list[i-1]) #Set diff to FVA01 values
+                update_cells_and_mosaic(con, raster_list[i], 1)     #Update FVA02
+
+        elif i == 3: #FVA03 is highest raster
+            msg("Fixing FVA01, FVA02, and FVA03 Rasters")
+            update_cells_and_mosaic(con, raster_list[i-2], 1)   #Update FVA01
+
+            msg("Fixing FVA02 Raster")
+            update_cells_and_mosaic(con, raster_list[i-1], 2)   #Update FVA02
+            update_cells_and_mosaic(con, raster_list[i], 3)     #Update FVA03
+
+        #TODO: Find way to fix cells that are beyond FVA00 extent - how do I add 1 foot to a cell that is beyond FVA00 extent?
+        #TODO: Maybe subtract 1 foot from higher FVA values instead of adding 1 foot to lower FVA values?
+        
+        #First we use the difference raster to show us where certain FVAs don't align, such as FVA02 and FVA01
+        #Then we fix the FVA01 raster by adding 1 foot to the FVA00 raster
+        #This does not fix values in FVA01 that are outside of FVA00 raster extents
+        #So when we compare FVA02 and FVA01 at the end, we still see differences. 
+        #We can subtract FVA02 - 1 to get FVA01 values here
+        #Then comparing FVA03 to FVA02, we will see issues where there are FVA01 and FVA02 cells outside of extents
+        #So we first fix FVA01, then FVA02, then FVA03. We then compare FVA01 and FVA02 again, and subtract 1 from FVA01 in these regions to get the correct values.
+        #Then we compare FVA03 and FVA02, and subtract 1 from FVA03 in any difference regions to get the correct values for FVA03.
+        #TODO: Find the right raster calculator functions to set FVA02 equal to FVA03 -1 wherever con raster exists
+            
         #Check to see if this actually fixed the problem!
-        min_diff_val_fixed, min = create_difference_raster(FVA_higher_raster_path, FVA_lower_raster_path)
+        min_diff_val_fixed, min_fixed = create_difference_raster(FVA_higher_raster_path, FVA_lower_raster_path)
+
         if min_diff_val_fixed >= 0:
             msg('No difference values less than 0 found - {0} Raster has been fixed!'.format(higher_FVA))
             msg('Moving on to next FVA comparison')
         else:
-            msg('Differences still exist - Raster has not been fixed. Please check raster for inconsistencies')
+            warn('Differences still exist - Raster has not been completely fixed. Please check difference raster for inconsistencies')
+            output_name = f"{pth.basename(FVA_higher_raster_path)}_diff"
+            output_path = pth.join(temp_gdb, output_name)
+            msg(f'Difference raster path: {output_path}')
+            try:
+                arcpy.CopyRaster_management(min_fixed, output_path)
+            except:
+                msg("Could not copy raster to temp gdb")
             msg('Moving on to next FVA comparison')
+
 
 def calc_fva_diff(l_fva_raster_path, h_fva_raster_path, temp_gdb):
 
@@ -636,12 +674,12 @@ def calc_fva_diff(l_fva_raster_path, h_fva_raster_path, temp_gdb):
 
     return h_fva_raster_path
 
-def check_and_fix_raster_extent_differences(Temp_File_Output_Location, raster_list):
+def check_and_fix_raster_extent_differences(temp_gdb, raster_list):
     """
     Checks and fixes the extent differences between FVA rasters.
 
     Parameters:
-    Temp_File_Output_Location (str): Location to store temporary files.
+    temp_gdb (str): Location to store temporary files.
     raster_list (list): List of raster files.
 
     Returns:
@@ -649,7 +687,7 @@ def check_and_fix_raster_extent_differences(Temp_File_Output_Location, raster_li
     """
 
     title_text("Converting FVA Rasters to Polygon")
-    poly_files = [convert_raster_to_polygon(raster, Temp_File_Output_Location, i) for i, raster in enumerate(raster_list)]
+    poly_files = [convert_raster_to_polygon(raster, temp_gdb, i) for i, raster in enumerate(raster_list)]
     
     for i in range(len(raster_list) - 1):
     
@@ -662,12 +700,12 @@ def check_and_fix_raster_extent_differences(Temp_File_Output_Location, raster_li
 
         #Check if there are any differences between the two FVA rasters - if not, skip this FVA comparison
         #Function also creates difference polygon
-        if determine_extent_difference(poly_files[i+1], poly_files[i], Temp_File_Output_Location, i+1, i) == "Pass":
+        if determine_extent_difference(poly_files[i+1], poly_files[i], temp_gdb, i+1, i) == "Pass":
             continue
 
         #Convert difference polygons to raster
-        diff_polygon = os.path.join(Temp_File_Output_Location, f"diffFva{i+1}_{i}")
-        diff_raster = Convert_Polygon_to_Raster(diff_polygon, lower_FVA, higher_FVA, Temp_File_Output_Location)
+        diff_polygon = os.path.join(temp_gdb, f"diffFva{i+1}_{i}")
+        diff_raster = Convert_Polygon_to_Raster(diff_polygon, lower_FVA, higher_FVA, temp_gdb)
 
         #Create new values for diff_raster by setting them equal to lower FVA value + 1
         Add_raster = Add_FVA_Value_To_Raster(diff_raster, lower_FVA, higher_FVA)
@@ -679,11 +717,10 @@ def check_and_fix_raster_extent_differences(Temp_File_Output_Location, raster_li
         Check_Raster_Properties(higher_FVA_Raster)
 
         #Update higher FVA Polygon based on new raster extents
-        convert_raster_to_polygon(higher_FVA_Raster, Temp_File_Output_Location, i+1, verbose=False)
+        convert_raster_to_polygon(higher_FVA_Raster, temp_gdb, i+1, verbose=False)
 
         #Delete temporary raster
         mgmt.Delete(Add_raster)  
-
 
 if __name__ == "__main__":
     
@@ -694,9 +731,6 @@ if __name__ == "__main__":
 
     #Get tool input parameters
     FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
-    
-    Temp_File_Output_Location = temp_gdb
-    #Temp_File_Output_Location = "in_memory"
 
     #Set Environment
     check_out_spatial_analyst()
@@ -705,11 +739,10 @@ if __name__ == "__main__":
     arcpy.env.overwriteOutput = True
 
     #Find Rasters in Geodatabase and create dictionary - Keys are FVA values, Values are Raster path
-    raster_dict = Find_FVA_Rasters(FFRMS_Geodatabase)
-    raster_list = [raster_dict["00FVA"], raster_dict["01FVA"], raster_dict["02FVA"], raster_dict["03FVA"]]
-
+    raster_list = Find_FVA_Rasters(FFRMS_Geodatabase)
+ 
     ## PART 1: FIXING RASTER EXTENTS
-    #check_and_fix_raster_extent_differences(Temp_File_Output_Location, raster_list)
+    #check_and_fix_raster_extent_differences(temp_gdb, raster_list)
     
     ## PART 2: FIXING CELL VALUES
     #Check if there are any cell differences between the FVA rasters according to the QC point shapefile
@@ -720,7 +753,7 @@ if __name__ == "__main__":
     #TODO: Test!
     title_text("fixing cell values")
 
-    calc_fva_diff2(raster_list)
+    calc_fva_diff2(raster_list, temp_gdb)
 
     #! Uncomment after testing
     #Delete temporary files
