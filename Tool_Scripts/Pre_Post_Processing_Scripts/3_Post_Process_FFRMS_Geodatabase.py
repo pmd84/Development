@@ -270,7 +270,14 @@ def Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, 
 
     #populate all fields
     arcpy.AddMessage("Updating Fields in S_AOI_Ar")
-    with arcpy.da.UpdateCursor(S_AOI_Ar, ["AOI_ID", "POL_NAME1", "FIPS", "NOTES", "AOI_INFO"]) as cursor:
+    fema_statement = r"Please contact your FEMA Regional FFRMS Specialist for additional information at FEMA-FFRMS-Support-Request@fema.dhs.gov"
+    aoi_issue_values = {"3060", 3060, "PFD area", #Coastal
+                        "3070", 3070, "4020", 4020, "Complex engineering area", #Both Coastal and Riverine
+                        "3080", 3080, "4030", 4030, "Levee", #Both Coastal and Riverine
+                        "3090", 3090, "4070", 4070, "Non-levee flood control structures" #Both Coastal and Riverine
+                        }
+
+    with arcpy.da.UpdateCursor(S_AOI_Ar, ["AOI_ID", "POL_NAME1", "FIPS", "NOTES", "AOI_INFO", "AOI_ISSUE"]) as cursor:
         for i, row in enumerate(cursor):
             row[0] = "{0}{1}_{2}".format(riv_or_cst,FIPS_code,i + 1)
             row[1] = county_name
@@ -279,6 +286,8 @@ def Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, 
                 row[3] = "NP"
             if row[4] == None:
                 row[4] = "NP"
+            if row[5] in aoi_issue_values:
+                row[4] = fema_statement
             cursor.updateRow(row)
 
 def Create_S_Raster_QC_Copy(S_Raster_QC_pt):

@@ -102,11 +102,6 @@ def Reclassify_within_polygon(in_raster, polygon, temp_out_location, reclass, ou
         outReclass = Reclassify(in_raster, "Value", 
                                 RemapRange([[min_value, max_value, reclass]]), "DATA")
         
-    # msg("Reclassifying raster")
-    # with arcpy.EnvManager(mask=polygon):
-    #     outReclass = Reclassify(input_raster, "Value", 
-    #                             RemapRange([[float(min_value), float(max_value), float(reclass)]]), "DATA")
-
     #Expand by one cell
     msg("Expanding by 1 cell")
     outExpand = Expand(outReclass, 1, [reclass_value])

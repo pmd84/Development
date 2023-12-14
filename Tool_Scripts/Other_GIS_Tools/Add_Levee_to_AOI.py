@@ -139,8 +139,8 @@ if __name__ == '__main__':
 
     #Calculate Fields
     arcpy.AddMessage("Calculating fields in levee_FVA03 feature class...")
-    AOI_Typ = "Riverine" #Riverine
-    AOI_Issue = "Levee" #Levee
+    AOI_Typ = "4000" #Riverine
+    AOI_Issue = "4030" #Levee
     S_AOI_Issues = r"Please contact your FEMA Regional FFRMS Specialist for additional information at FEMA-FFRMS-Support-Request@fema.dhs.gov"
     
     arcpy.CalculateField_management(levee_FVA03, "AOI_TYP", '"' + AOI_Typ + '"', "PYTHON3")
