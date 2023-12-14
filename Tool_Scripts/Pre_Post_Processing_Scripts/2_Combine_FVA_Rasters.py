@@ -663,7 +663,7 @@ if __name__ == '__main__':
                 try:
                     arcpy.analysis.Clip(AOI_Feature, County_Boundary, Clipped_AOI)
                     arcpy.management.Append(Clipped_AOI, AOI_Target, "NO_TEST")
-                except Exception as e:
+                except:
                     arcpy.AddWarning(f"Failed to clip AOIs in HUC {HUC} - please manually clip to county boundary")
                     arcpy.management.Append(AOI_Feature, AOI_Target, "NO_TEST")
 

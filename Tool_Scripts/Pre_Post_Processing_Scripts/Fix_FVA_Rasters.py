@@ -253,7 +253,7 @@ def Find_FVA_Rasters(FFRMS_Geodatabase):
     #Reset workspace
     arcpy.env.workspace = current_workspace
 
-    return raster_list
+    return raster_list, raster_dict
 
 def Check_FVA_Difference_Polygon(lower_FVA, higher_FVA, diff_polygon):
     """
@@ -335,7 +335,7 @@ def Convert_Polygon_to_Raster(diff_polygon, lower_FVA, higher_FVA, temp_gdb):
     
     return diff_raster
 
-def Add_FVA_Value_To_Raster(diff_raster, lower_FVA, higher_FVA):
+def Add_FVA_Value_To_Raster(diff_raster, lower_FVA, higher_FVA, raster_dict, temp_gdb):
     """
     Process: Create new values for diff_raster by setting them equal to lower FVA value + 1
 
@@ -356,10 +356,14 @@ def Add_FVA_Value_To_Raster(diff_raster, lower_FVA, higher_FVA):
     raster_calc = RasterCalculator([arcpy.Raster(diff_raster), arcpy.Raster(lower_FVA_Raster)], ["x","y"], "(x*y)+1")
     raster_calc_rounded = RasterCalculator([raster_calc], ["x"], "Float(Int(x*10.0 + 0.5)/10.0)")
 
-    #Save raster portion to add to temp location
-    Add_raster = os.path.join(FFRMS_Geodatabase, "Add_to_{0}_raster".format(higher_FVA))
-    mgmt.CopyRaster(raster_calc_rounded, Add_raster)
+    # #Save raster portion to add to temp location
+    # Add_raster = os.path.join(temp_gdb, "Add_to_{0}_raster".format(higher_FVA))
+    # try:
+    #     mgmt.CopyRaster(raster_calc_rounded, Add_raster)
+    # except:
+    #     Add_raster = raster_calc_rounded
 
+    Add_raster = raster_calc_rounded
     return Add_raster
 
 def Mosaic_to_Higher_FVA_Raster(higher_FVA, Add_raster):
@@ -458,25 +462,24 @@ def determine_extent_difference(poly_higher, poly_lower, temp_gdb, index_higher,
 
 def create_difference_raster(FVA_higher_raster_path, FVA_lower_raster_path):
     #Find where the lower FVA is higher than the upper FVA.
-    msg('Identifying differences')
 
     #Create Raster instance
     FVA_lower_raster = arcpy.Raster(FVA_lower_raster_path)
     FVA_higher_raster = arcpy.Raster(FVA_higher_raster_path)
     
     #Determine differences
-    min = arcpy.sa.Minus(FVA_higher_raster,FVA_lower_raster)
+    min_raster = arcpy.sa.Minus(FVA_higher_raster,FVA_lower_raster)
 
     #Check if there are any differences below 0 between the two FVA rasters
-    min_diff_val = arcpy.Raster(min).minimum
-    msg(f'Minimum value of difference raster is {min_diff_val}')
+    min_diff_val = arcpy.Raster(min_raster).minimum
+    msg(f'Smallest difference between rasters is {min_diff_val}')
 
-    return min_diff_val, min
+    return min_diff_val, min_raster
 
 def set_difference_raster_to_lower_FVA_values(min, FVA_lower_raster_path):
     
     lower_FVA_raster = arcpy.Raster(FVA_lower_raster_path)
-    msg('Referencing lower FVA Raster values')
+
     con = arcpy.sa.Con(
         in_conditional_raster=min,
         in_true_raster_or_constant=lower_FVA_raster,
@@ -486,7 +489,8 @@ def set_difference_raster_to_lower_FVA_values(min, FVA_lower_raster_path):
     
 def update_cells_and_mosaic(con, target_raster_path, adjustment):
     raster_FVA = os.path.basename(target_raster_path).split('_')[3]
-    msg(f'Fixing {raster_FVA} raster values by adding {adjustment} foot to FVA00')
+    if adjustment != 0:
+        msg(f'Fixing {raster_FVA} raster values by adding {adjustment} foot to FVA00')
 
     plus = arcpy.sa.Plus(con, adjustment)
 
@@ -505,8 +509,58 @@ def update_cells_and_mosaic(con, target_raster_path, adjustment):
         MatchingMethod="NONE"
     )
 
-def calc_fva_diff2(raster_list, temp_gdb):
+def save_difference_raster(temp_gdb, higher_FVA, lower_FVA, min):
+    #save persistent differences to temp gdb
+    output_name = f"diff_{higher_FVA}_{lower_FVA}"
+    output_path = pth.join(temp_gdb, output_name)
+    msg(f'Difference raster path: {output_path}')
+    arcpy.CopyRaster_management(min, output_path)
 
+def fix_raster_using_median_values(target_raster_path, min_raster, temp_gdb, save=False):
+
+    FVA_Val = os.path.basename(target_raster_path).split('_')[3]
+    target_raster = arcpy.Raster(target_raster_path)
+
+    # Step 1: Set Null on target_raster based on negative_raster
+    msg("removing bad values from raster")
+    negative_raster = SetNull(min_raster, min_raster, "VALUE > 0") #Sets all values in dif raster > 0 to null
+    raster_without_negatives = SetNull(~IsNull(negative_raster), target_raster) #Removes negative difference cells from target raster
+    output_1 = f"raster_without_negatives_{FVA_Val}"
+
+    # Step 2: Create and round the median raster
+    msg("creating and rounding median raster")
+    median_raster = FocalStatistics(raster_without_negatives, NbrRectangle(10,10, "CELL"), "MEDIAN")
+    median_raster_rounded = arcpy.sa.Float(Int(median_raster * 10.0 + 0.5) / 10.0)
+    output_2 = f"median_raster_rounded_{FVA_Val}"
+
+    # Step 3: Create a subset of the rounded median raster
+    raster_median_insert = SetNull(IsNull(negative_raster), median_raster_rounded)
+    #raster_median_subset = Con(~IsNull(negative_raster), median_raster_rounded)
+    output_3 = f"median_raster_rounded_subset_{FVA_Val}"
+
+    #mosaic
+    msg("Mosaicing fixed cells into raster")
+    update_cells_and_mosaic(raster_median_insert, target_raster_path, 0)  # Apply the adjusted con raster
+
+    if save:
+        msg("Saving rasters to temp gbd")
+        raster_list = [raster_without_negatives, median_raster_rounded, raster_median_insert]
+        output_list = [output_1, output_2, output_3]
+        for raster, output in zip(raster_list, output_list):
+            msg(f"Saving {output} to temp gdb")
+            try:
+                mgmt.CopyRaster(raster, pth.join(temp_gdb, output))
+            except:
+                try:
+                    msg("Could not copy, attempting save")
+                    raster.save(pth.join(temp_gdb, output))
+                except:
+                    warn(f"Failed to save {output} to temp gdb")
+            
+def calc_fva_diff2(raster_list, temp_gdb):
+    title_text("Fixing cell values")
+
+    failed = False
     for i in range(1, len(raster_list)): 
         lower_FVA = "0{}FVA".format(i-1)
         higher_FVA = "0{}FVA".format(i)
@@ -532,57 +586,56 @@ def calc_fva_diff2(raster_list, temp_gdb):
 
         #Fix all FVA rasters below the current higher FVA
         if i == 1: #FVA01 is highest raster
-            msg("Fixing FVA01 Raster")
+            title_text("Fixing FVA01 Raster")
             update_cells_and_mosaic(con, raster_list[i], 1) #Update FVA01
 
         elif i == 2: #FVA02 is highest raster
-            msg("Fixing FVA01 first")
+            title_text("Fixing FVA01 and FVA02 Raster")
             update_cells_and_mosaic(con, raster_list[i-1], 1)   #Update FVA01 first
+            update_cells_and_mosaic(con, raster_list[i], 2)   #Update FVA02 first
 
-            msg("Fixing FVA02 Raster")
-            min_diff_val, min = create_difference_raster(raster_list[i], raster_list[i-1]) #compare FVA02 and FVA01
-            if min_diff_val <= 0: #if there are any negative values - fix them
-                con = set_difference_raster_to_lower_FVA_values(min, raster_list[i-1]) #Set diff to FVA01 values
-                update_cells_and_mosaic(con, raster_list[i], 1)     #Update FVA02
+            msg("Looking for persisting differences between FVA02 and FVA01 Rasters")
+            min_diff_val_fixed1, min_fixed1 = create_difference_raster(raster_list[i], raster_list[i-1]) #compare FVA02 and FVA01
+            if min_diff_val_fixed1 <= 0: #if there are any negative values - fix them
+                msg("Found persistent cell difference issues - fixing using median values of surrounding cells")
+                fix_raster_using_median_values(raster_list[i-1], min_fixed1, temp_gdb, save=False)
+                fix_raster_using_median_values(raster_list[i], min_fixed1, temp_gdb, save=False)
 
         elif i == 3: #FVA03 is highest raster
-            msg("Fixing FVA01, FVA02, and FVA03 Rasters")
+            title_text("Fixing FVA01, FVA02, and FVA03 Rasters")
             update_cells_and_mosaic(con, raster_list[i-2], 1)   #Update FVA01
-
-            msg("Fixing FVA02 Raster")
             update_cells_and_mosaic(con, raster_list[i-1], 2)   #Update FVA02
             update_cells_and_mosaic(con, raster_list[i], 3)     #Update FVA03
 
-        #TODO: Find way to fix cells that are beyond FVA00 extent - how do I add 1 foot to a cell that is beyond FVA00 extent?
-        #TODO: Maybe subtract 1 foot from higher FVA values instead of adding 1 foot to lower FVA values?
-        
-        #First we use the difference raster to show us where certain FVAs don't align, such as FVA02 and FVA01
-        #Then we fix the FVA01 raster by adding 1 foot to the FVA00 raster
-        #This does not fix values in FVA01 that are outside of FVA00 raster extents
-        #So when we compare FVA02 and FVA01 at the end, we still see differences. 
-        #We can subtract FVA02 - 1 to get FVA01 values here
-        #Then comparing FVA03 to FVA02, we will see issues where there are FVA01 and FVA02 cells outside of extents
-        #So we first fix FVA01, then FVA02, then FVA03. We then compare FVA01 and FVA02 again, and subtract 1 from FVA01 in these regions to get the correct values.
-        #Then we compare FVA03 and FVA02, and subtract 1 from FVA03 in any difference regions to get the correct values for FVA03.
-        #TODO: Find the right raster calculator functions to set FVA02 equal to FVA03 -1 wherever con raster exists
-            
-        #Check to see if this actually fixed the problem!
-        min_diff_val_fixed, min_fixed = create_difference_raster(FVA_higher_raster_path, FVA_lower_raster_path)
+            msg("Looking for persisting differences between FVA03 and FVA02 Rasters")
+            min_diff_val_fixed_2, min_fixed2 = create_difference_raster(raster_list[i], raster_list[i-1]) #compare FVA02 and FVA01
+            if min_diff_val_fixed_2 <= 0: #if there are any negative values - fix them
+                msg("Found persistent cell difference issues - fixing using median values of surrounding cells")
+                fix_raster_using_median_values(raster_list[i-2], min_fixed2, temp_gdb, save=False)
+                fix_raster_using_median_values(raster_list[i-1], min_fixed2, temp_gdb, save=False)
+                fix_raster_using_median_values(raster_list[i], min_fixed2, temp_gdb, save=False)
 
-        if min_diff_val_fixed >= 0:
+        #Check to see if this actually fixed the problem!
+        min_diff_val_fixed_final, min_fixed_final = create_difference_raster(FVA_higher_raster_path, FVA_lower_raster_path)
+        if min_diff_val_fixed_final >= 0:
             msg('No difference values less than 0 found - {0} Raster has been fixed!'.format(higher_FVA))
             msg('Moving on to next FVA comparison')
         else:
             warn('Differences still exist - Raster has not been completely fixed. Please check difference raster for inconsistencies')
-            output_name = f"{pth.basename(FVA_higher_raster_path)}_diff"
+            output_name = f"diff_{higher_FVA}_{lower_FVA}_final"
             output_path = pth.join(temp_gdb, output_name)
             msg(f'Difference raster path: {output_path}')
+            failed = True
             try:
-                arcpy.CopyRaster_management(min_fixed, output_path)
+                arcpy.CopyRaster_management(min_fixed_final, output_path)
             except:
                 msg("Could not copy raster to temp gdb")
             msg('Moving on to next FVA comparison')
+    
+    title_text("Finished fixing cell values")
 
+    return failed
+        
 
 def calc_fva_diff(l_fva_raster_path, h_fva_raster_path, temp_gdb):
 
@@ -708,7 +761,7 @@ def check_and_fix_raster_extent_differences(temp_gdb, raster_list):
         diff_raster = Convert_Polygon_to_Raster(diff_polygon, lower_FVA, higher_FVA, temp_gdb)
 
         #Create new values for diff_raster by setting them equal to lower FVA value + 1
-        Add_raster = Add_FVA_Value_To_Raster(diff_raster, lower_FVA, higher_FVA)
+        Add_raster = Add_FVA_Value_To_Raster(diff_raster, lower_FVA, higher_FVA, raster_dict, temp_gdb)
 
         #Mosaic the new raster with the higher FVA raster - Needs more testing
         higher_FVA_Raster = Mosaic_to_Higher_FVA_Raster(higher_FVA, Add_raster)
@@ -739,28 +792,23 @@ if __name__ == "__main__":
     arcpy.env.overwriteOutput = True
 
     #Find Rasters in Geodatabase and create dictionary - Keys are FVA values, Values are Raster path
-    raster_list = Find_FVA_Rasters(FFRMS_Geodatabase)
+    raster_list, raster_dict = Find_FVA_Rasters(FFRMS_Geodatabase)
  
     ## PART 1: FIXING RASTER EXTENTS
-    #check_and_fix_raster_extent_differences(temp_gdb, raster_list)
+    check_and_fix_raster_extent_differences(temp_gdb, raster_list)
     
     ## PART 2: FIXING CELL VALUES
-    #Check if there are any cell differences between the FVA rasters according to the QC point shapefile
-    # fva_1 = calc_fva_diff(raster_list[0], raster_list[1], temp_gdb)
-    # fva_2 = calc_fva_diff(fva_1, raster_list[2], temp_gdb)
-    # fva_3 = calc_fva_diff(fva_2, raster_list[3], temp_gdb)
+    failed = calc_fva_diff2(raster_list, temp_gdb)
 
-    #TODO: Test!
-    title_text("fixing cell values")
-
-    calc_fva_diff2(raster_list, temp_gdb)
-
-    #! Uncomment after testing
     #Delete temporary files
-    #mgmt.Delete("in_memory")
-    #shutil.rmtree(temp_dir)
-    
-    title_text("Cell values corrected.")
+    if not failed:
+        msg("All FVAs pass - deleting temporary files")
+        mgmt.Delete(temp_gdb)
+        shutil.rmtree(temp_dir)
+    else:
+        warn("Not all FVAs pass - review temp geodatabse for discrepancies")
+        warn(f"Temp GDB location: {temp_gdb}")
+
     title_text('Script Complete')
 
     
