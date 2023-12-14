@@ -8,7 +8,8 @@ from arcpy import env
 from arcpy.sa import *
 import shutil
 import pandas as pd
-
+from arcpy import AddMessage as msg
+from arcpy import AddWarning as warn
 
 def Check_Source_Data(Tool_Template_Folder):
     arcpy.AddMessage(u"\u200B")
@@ -128,51 +129,46 @@ def Get_All_HUC8s_in_County(county_boundary, HUC8_Shapefile):
 
     return County_HUC8s, HUC8_list
     
-def Create_HUC8_folders(HUC8_list):
+def Create_HUC8_folder(handy_folder, HUC8):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Creating HUC8 FVA Input Folders #####")
 
-    HUC8s_to_process = []
+    HUC8_folder = os.path.join(handy_folder, HUC8)
+    HUC8_input_folder = os.path.join(HUC8_folder, "inputs")
+    HUC8_output_folder = os.path.join(HUC8_folder, "outputs")
+    HUC8_input_a_folder = os.path.join(HUC8_input_folder, "{0}_a".format(HUC8))
+    
+    #Don't process HUC if it's already been processed
+    if os.path.exists(HUC8_folder):
+        arcpy.AddMessage("HUC8 {0} has already been processed".format(HUC8))
+        return False
+    else: 
+        arcpy.AddMessage("Creating HUC8 {0} HANDy folders".format(HUC8))
+        for folder in [HUC8_folder, HUC8_input_folder, HUC8_output_folder, HUC8_input_a_folder]:
+            if not os.path.exists(folder):
+                os.makedirs(folder)
+        return True
 
-    for HUC8 in HUC8_list:
-        HUC8_folder = os.path.join(handy_folder, HUC8)
-        HUC8_input_folder = os.path.join(HUC8_folder, "inputs")
-        HUC8_output_folder = os.path.join(HUC8_folder, "outputs")
-        HUC8_input_a_folder = os.path.join(HUC8_input_folder, "{0}_a".format(HUC8))
-        
-        #Remove HUC from processing list if it's already been processed
-        if os.path.exists(HUC8_folder):
-            arcpy.AddMessage("HUC8 {0} has already been processed".format(HUC8))
-        else:
-            HUC8s_to_process.append(HUC8)    
-            arcpy.AddMessage("Creating HUC8 {0} HANDy folders".format(HUC8))
-            for folder in [HUC8_folder, HUC8_input_folder, HUC8_output_folder, HUC8_input_a_folder]:
-                if not os.path.exists(folder):
-                    os.makedirs(folder)
-
-    return HUC8s_to_process
-
-def Create_HUC8_Shapefiles(HUC8_list, County_HUC8s):
+def Create_HUC8_Shapefile(HUC8, HUC8_Shapefile):
     arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Buffering HUC8s #####")
+    arcpy.AddMessage("##### Buffering HUC8 #####")
 
-    for HUC8 in HUC8_list:
-        HUC8_folder = os.path.join(handy_folder, HUC8, "inputs", "{0}_a".format(HUC8))
-        arcpy.AddMessage("Buffering HUC8 {0} by 1 km".format(HUC8))
+    HUC8_folder = os.path.join(handy_folder, HUC8, "inputs", "{0}_a".format(HUC8))
+    arcpy.AddMessage("Buffering HUC8 {0} by 1 km".format(HUC8))
 
-        HUC8_File = os.path.join(HUC8_folder, "HUC8_{0}.shp".format(HUC8))
-        HUC8_Buffer = os.path.join(HUC8_folder, "HUC8_{0}_Buffer.shp".format(HUC8))
+    HUC8_File = os.path.join(HUC8_folder, "HUC8_{0}.shp".format(HUC8))
+    HUC8_Buffer = os.path.join(HUC8_folder, "HUC8_{0}_Buffer.shp".format(HUC8))
 
-        #Select the HUC8
-        arcpy.management.MakeFeatureLayer(County_HUC8s, "HUC8_layer")
-        arcpy.management.SelectLayerByAttribute(in_layer_or_view="HUC8_layer", selection_type="NEW_SELECTION", 
-                                            where_clause="huc8 = '{0}'".format(HUC8))
-        
-        #Create HUC8_file
-        arcpy.management.CopyFeatures(in_features="HUC8_layer", out_feature_class=HUC8_File)
+    #Select the HUC8
+    arcpy.management.MakeFeatureLayer(HUC8_Shapefile, "HUC8_layer")
+    arcpy.management.SelectLayerByAttribute(in_layer_or_view="HUC8_layer", selection_type="NEW_SELECTION", 
+                                        where_clause="huc8 = '{0}'".format(HUC8))
+    
+    #Create HUC8_file
+    arcpy.management.CopyFeatures(in_features="HUC8_layer", out_feature_class=HUC8_File)
 
-        #Create Buffer
-        arcpy.Buffer_analysis("HUC8_layer", HUC8_Buffer, buffer_distance_or_field="1 Kilometers", dissolve_option="ALL", method="PLANAR")
+    #Create Buffer
+    arcpy.Buffer_analysis("HUC8_layer", HUC8_Buffer, buffer_distance_or_field="1 Kilometers", dissolve_option="ALL", method="PLANAR")
 
 def find_file(filename, directory):
     for file in os.listdir(directory):
@@ -214,64 +210,62 @@ def move_to_convert_folder(FVA_feature, HUC8_folder):
     arcpy.management.CopyFeatures(FVA_feature, convert_features)
     arcpy.management.Delete(FVA_feature)
 
-def Select_NFHL_by_HUC(feature_type, NFHL_File, HUC8_list, buffer):
+def Select_NFHL_by_HUC(feature_type, NFHL_File, HUC8, buffer):
 
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Creating FVA {} files #####".format(feature_type))
 
-    #Loop through HUC8s
-    for HUC8 in HUC8_list:
-        HUC8_folder = os.path.join(handy_folder, HUC8, "inputs", "{0}_a".format(HUC8))
+    HUC8_folder = os.path.join(handy_folder, HUC8, "inputs", "{0}_a".format(HUC8))
 
-        if buffer == True:
-            HUC8_Boundary = os.path.join(HUC8_folder, "HUC8_{0}_Buffer.shp".format(HUC8))
-        else:
-            HUC8_Boundary = os.path.join(HUC8_folder, "HUC8_{0}.shp".format(HUC8))
+    if buffer == True:
+        HUC8_Boundary = os.path.join(HUC8_folder, "HUC8_{0}_Buffer.shp".format(HUC8))
+    else:
+        HUC8_Boundary = os.path.join(HUC8_folder, "HUC8_{0}.shp".format(HUC8))
 
-        # Create FVA_feature layer 
-        FVA_feature_name = "FVA_{}_{}.shp".format(feature_type, HUC8)
-        FVA_feature = os.path.join(HUC8_folder, FVA_feature_name)
+    # Create FVA_feature layer 
+    FVA_feature_name = "FVA_{}_{}.shp".format(feature_type, HUC8)
+    FVA_feature = os.path.join(HUC8_folder, FVA_feature_name)
 
-        #Select by location using feature layer
-        arcpy.management.MakeFeatureLayer(NFHL_File, "FVA_feature_layer")
-        arcpy.management.SelectLayerByLocation(in_layer="FVA_feature_layer", overlap_type="INTERSECT", 
-                                               select_features=HUC8_Boundary, selection_type="NEW_SELECTION")
-        arcpy.management.CopyFeatures(in_features="FVA_feature_layer", out_feature_class=FVA_feature)
+    #Select by location using feature layer
+    arcpy.management.MakeFeatureLayer(NFHL_File, "FVA_feature_layer")
+    arcpy.management.SelectLayerByLocation(in_layer="FVA_feature_layer", overlap_type="INTERSECT", 
+                                            select_features=HUC8_Boundary, selection_type="NEW_SELECTION")
+    arcpy.management.CopyFeatures(in_features="FVA_feature_layer", out_feature_class=FVA_feature)
 
-        #Check to see if the feature is empty:
-        if arcpy.management.GetCount(FVA_feature)[0] == "0":
-            arcpy.AddMessage("No {0} data found for HUC {1}".format(feature_type, HUC8))
-            arcpy.management.Delete(FVA_feature)
-            continue
-        else:
-            arcpy.AddMessage("Added {0} to handy folder for HUC {1}".format(FVA_feature_name, HUC8))
-        
-        #if feature_type is "S_XS", use update cursor to loop through WSEL_REG and delete any values with -9999, -8888, or 9999
-        if feature_type == "S_XS":
-            deleted_rows = 0
-            with arcpy.da.UpdateCursor(FVA_feature, "WSEL_REG") as cursor:
-                for row in cursor:
-                    if row[0] in [-9999, -8888, 9999]:
-                        cursor.deleteRow()
-                        deleted_rows += 1
-            if deleted_rows > 0:
-                arcpy.AddMessage("Deleted {0} XS features with bad WSEL (i.e. -9999, -8888, 9999) from {1} feature".format(deleted_rows, FVA_feature_name))
-                        
-        #Delete any new fields that were added to S_Profil_Basln during the merge
-        delete_fields = ["BW", "INTER_ZONE"]
-        for field in delete_fields:
-            if field in [f.name for f in arcpy.ListFields(FVA_feature)]:
-                try:
-                    arcpy.management.DeleteField(in_table=FVA_feature, drop_field=field)
-                except:
-                    pass
+    #Check to see if the feature is empty:
+    if arcpy.management.GetCount(FVA_feature)[0] == "0":
+        arcpy.AddMessage("No {0} data found for HUC {1}".format(feature_type, HUC8))
+        arcpy.management.Delete(FVA_feature)
+        return
+    else:
+        arcpy.AddMessage("Added {0} to handy folder for HUC {1}".format(FVA_feature_name, HUC8))
+    
+    #if feature_type is "S_XS", use update cursor to loop through WSEL_REG and delete any values with -9999, -8888, or 9999
+    if feature_type == "S_XS":
+        deleted_rows = 0
+        with arcpy.da.UpdateCursor(FVA_feature, "WSEL_REG") as cursor:
+            for row in cursor:
+                if row[0] in [-9999, -8888, 9999]:
+                    cursor.deleteRow()
+                    deleted_rows += 1
+        if deleted_rows > 0:
+            arcpy.AddMessage("Deleted {0} XS features with bad WSEL (i.e. -9999, -8888, 9999) from {1} feature".format(deleted_rows, FVA_feature_name))
+                    
+    #Delete any new fields that were added to S_Profil_Basln during the merge
+    delete_fields = ["BW", "INTER_ZONE"]
+    for field in delete_fields:
+        if field in [f.name for f in arcpy.ListFields(FVA_feature)]:
+            try:
+                arcpy.management.DeleteField(in_table=FVA_feature, drop_field=field)
+            except:
+                pass
 
-        #Check Vertical Datum of feature   
-        NGVD29 = Check_Elev_Datum(FVA_feature, FVA_feature_name)
+    #Check Vertical Datum of feature   
+    NGVD29 = Check_Elev_Datum(FVA_feature, FVA_feature_name)
 
-        #If there are NGVD29 values, move feature to Convert_elevations_in_these_files_from_NGVD29_to_NAVD88 folder
-        if NGVD29 == True:
-            move_to_convert_folder(FVA_feature, HUC8_folder)
+    #If there are NGVD29 values, move feature to Convert_elevations_in_these_files_from_NGVD29_to_NAVD88 folder
+    if NGVD29 == True:
+        move_to_convert_folder(FVA_feature, HUC8_folder)
 
 def Create_S_Fld_Haz_Ar_Static_BFE(input_feature, static_bfe_name):
     if input_feature is not None:
@@ -324,60 +318,59 @@ def subset_L_XS_Elev_by_XS_LN_ID(L_XS_Elev_table, HUC8_FVA_S_XS, Output_df, feat
 
     return Output_df
 
-def Create_L_XS_Tables(HUC8_list, L_XS_Elev):
+def Create_L_XS_Table(HUC8, L_XS_Elev):
     arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Creating L_XS_Elev files #####")
+    arcpy.AddMessage("##### Creating L_XS_Elev file #####")
     
-    for HUC8 in HUC8_list:
-        arcpy.AddMessage("HUC8 {0}".format(HUC8))
-        HUC8_folder = os.path.join(handy_folder, HUC8, "inputs", "{0}_a".format(HUC8))
+    arcpy.AddMessage("HUC8 {0}".format(HUC8))
+    HUC8_folder = os.path.join(handy_folder, HUC8, "inputs", "{0}_a".format(HUC8))
 
-        #Check that FVA_S_XS exists in HUC8 folder
-        HUC8_FVA_S_XS = os.path.join(HUC8_folder, "FVA_S_XS_{0}.shp".format(HUC8))
-        convert_folder = os.path.join(HUC8_folder, "Convert_elevations_in_these_files_from_NGVD29_to_NAVD88")
+    #Check that FVA_S_XS exists in HUC8 folder
+    HUC8_FVA_S_XS = os.path.join(HUC8_folder, "FVA_S_XS_{0}.shp".format(HUC8))
+    convert_folder = os.path.join(HUC8_folder, "Convert_elevations_in_these_files_from_NGVD29_to_NAVD88")
+    if not arcpy.Exists(HUC8_FVA_S_XS):
+        #Check in convert folder first - save output in convert folder
+        HUC8_FVA_S_XS = os.path.join(convert_folder, "FVA_S_XS_{0}.shp".format(HUC8))
+        FVA_output_dbf = os.path.join(convert_folder,"FVA_L_XS_Elev.dbf")
+
         if not arcpy.Exists(HUC8_FVA_S_XS):
-            #Check in convert folder first - save output in convert folder
-            HUC8_FVA_S_XS = os.path.join(convert_folder, "FVA_S_XS_{0}.shp".format(HUC8))
-            FVA_output_dbf = os.path.join(convert_folder,"FVA_L_XS_Elev.dbf")
-
-            if not arcpy.Exists(HUC8_FVA_S_XS):
-                #if not in convert folder, this HUC gets skipped for L_XS_Elev
-                arcpy.AddMessage("No FVA_S_XS_{0}.shp found in HUC8 folder. L_XS_Elev will not be generated.".format(HUC8))
-                continue
-            else:
-                arcpy.AddMessage("Found FVA_XS in NGVD29 Convert folder".format(HUC8))
+            #if not in convert folder, this HUC gets skipped for L_XS_Elev
+            arcpy.AddMessage("No FVA_S_XS_{0}.shp found in HUC8 folder. L_XS_Elev will not be generated.".format(HUC8))
+            return
         else:
-            arcpy.AddMessage("Found FVA_XS in HUC8 folder".format(HUC8))
-            FVA_output_dbf = os.path.join(HUC8_folder,"FVA_L_XS_Elev.dbf")
-        
-        #Set paths for output L_XS_Elev files
-        NFHL_output_dbf = os.path.join("in_memory","NFHL_L_XS_Elev")
+            arcpy.AddMessage("Found FVA_XS in NGVD29 Convert folder".format(HUC8))
+    else:
+        arcpy.AddMessage("Found FVA_XS in HUC8 folder".format(HUC8))
+        FVA_output_dbf = os.path.join(HUC8_folder,"FVA_L_XS_Elev.dbf")
+    
+    #Set paths for output L_XS_Elev files
+    NFHL_output_dbf = os.path.join("in_memory","NFHL_L_XS_Elev")
 
-        #Subset NFHL L_XS_Elev using S_XS
-        try:
-            NFHL_output_dbf = subset_L_XS_Elev_by_XS_LN_ID(L_XS_Elev, HUC8_FVA_S_XS, NFHL_output_dbf, "NFHL")
-        except:
-            arcpy.AddMessage("No matching NFHL L_XS_Elev found")
-            continue
+    #Subset NFHL L_XS_Elev using S_XS
+    try:
+        NFHL_output_dbf = subset_L_XS_Elev_by_XS_LN_ID(L_XS_Elev, HUC8_FVA_S_XS, NFHL_output_dbf, "NFHL")
+    except:
+        arcpy.AddMessage("No matching NFHL L_XS_Elev found")
+        return
 
-        #Export MIP to .dbf file
-        arcpy.AddMessage("Copying NFHL L_XS_Elev to FVA_L_XS_Elev")
-        arcpy.conversion.ExportTable(in_table=NFHL_output_dbf,out_table=FVA_output_dbf)
-        
-        #Check to see if feature is empty
-        if arcpy.management.GetCount(FVA_output_dbf)[0] == "0":
-            arcpy.AddMessage("No L_XS_Elev data found for HUC {0}".format(HUC8))
-            arcpy.AddMessage("Deleting L_XS_Elev from HUC8 folder")
+    #Export MIP to .dbf file
+    arcpy.AddMessage("Copying NFHL L_XS_Elev to FVA_L_XS_Elev")
+    arcpy.conversion.ExportTable(in_table=NFHL_output_dbf,out_table=FVA_output_dbf)
+    
+    #Check to see if feature is empty
+    if arcpy.management.GetCount(FVA_output_dbf)[0] == "0":
+        arcpy.AddMessage("No L_XS_Elev data found for HUC {0}".format(HUC8))
+        arcpy.AddMessage("Deleting L_XS_Elev from HUC8 folder")
+        arcpy.management.Delete(FVA_output_dbf)
+        return
+    
+    #Check vertical datum for FVA L_XS_Elev - if for some reason S_XS has no NGVD29 vals but L_XS_Elev does
+    if arcpy.Exists(os.path.join(HUC8_folder,"FVA_L_XS_Elev.dbf")): #If there is an L_XS_Elev table not in the convert folder
+        NGVD29 = Check_Elev_Datum(FVA_output_dbf, "FVA_L_XS_Elev")
+        if NGVD29 == True:
+            ngvd29_l_xs_table = os.path.join(convert_folder, "FVA_L_XS_Elev.dbf")
+            arcpy.conversion.ExportTable(in_table=FVA_output_dbf,out_table=ngvd29_l_xs_table)
             arcpy.management.Delete(FVA_output_dbf)
-            continue
-        
-        #Check vertical datum for FVA L_XS_Elev - if for some reason S_XS has no NGVD29 vals but L_XS_Elev does
-        if arcpy.Exists(os.path.join(HUC8_folder,"FVA_L_XS_Elev.dbf")): #If there is an L_XS_Elev table not in the convert folder
-            NGVD29 = Check_Elev_Datum(FVA_output_dbf, "FVA_L_XS_Elev")
-            if NGVD29 == True:
-                ngvd29_l_xs_table = os.path.join(convert_folder, "FVA_L_XS_Elev.dbf")
-                arcpy.conversion.ExportTable(in_table=FVA_output_dbf,out_table=ngvd29_l_xs_table)
-                arcpy.management.Delete(FVA_output_dbf)
 
 def Get_Stantec_County_HUC8_Scope(Stantec_HUC_Tracker, county_name, state_abrv, county_field):
 #use cursor to loop through HUC tracker, looking at county field and huc8 field
@@ -400,7 +393,7 @@ def Get_Stantec_County_HUC8_Scope(Stantec_HUC_Tracker, county_name, state_abrv, 
     arcpy.AddMessage("Please double check assigned HUC8s within Scope File, and only process the HUC8s that are in the given scope")
     arcpy.AddMessage("Delete HUC8 folders that will not be processed by you")
 
-def Copy_AOI_Erase_GDB(HUC8_list, HUC_AOI_Erase_gdb):
+def Copy_AOI_Erase_GDB(HUC8, HUC_AOI_Erase_gdb):
     #Loop through HUC8 folders and copy the HUC_Erase_AOI_gdb to the HUC8 folder, rename to match HUC
 
     arcpy.AddMessage(u"\u200B")
@@ -410,59 +403,58 @@ def Copy_AOI_Erase_GDB(HUC8_list, HUC_AOI_Erase_gdb):
         arcpy.AddWarning("Can't find HUC-level Erase Areas and AOI geodatabase. Please manually copy the HUC_AOIs_Erase_Areas_XXXXXXXX.gdb to the handy folder for each HUC you will process")
         return
         
-    for HUC8 in HUC8_list:
+    arcpy.AddMessage("Creating gdb for HUC8 {0}".format(HUC8))
+    gdb_name = "AOIs_Erase_Areas_{0}.gdb".format(HUC8)
+    HUC8_folder = os.path.join(handy_folder, HUC8)
+    HUC8_AOI_Erase_gdb = os.path.join(HUC8_folder, gdb_name)
+    
+    #Copy Template GDB
+    if os.path.exists(HUC8_AOI_Erase_gdb):
+        arcpy.AddMessage("HUC8 AOI and Erase Area GDBs already exist")
+    else:
+        #Copy GDB
+        shutil.copytree(HUC_AOI_Erase_gdb, HUC8_AOI_Erase_gdb)
 
-        arcpy.AddMessage("Creating gdb for HUC8 {0}".format(HUC8))
-        gdb_name = "AOIs_Erase_Areas_{0}.gdb".format(HUC8)
-        HUC8_folder = os.path.join(handy_folder, HUC8)
-        HUC8_AOI_Erase_gdb = os.path.join(HUC8_folder, gdb_name)
-        
-        #Copy Template GDB
-        if os.path.exists(HUC8_AOI_Erase_gdb):
-            arcpy.AddMessage("HUC8 AOI and Erase Area GDBs already exist")
-        else:
-            #Copy GDB
-            shutil.copytree(HUC_AOI_Erase_gdb, HUC8_AOI_Erase_gdb)
+        #rename Erase_Areas_XXXXXXXX to Erase_Areas_HUC8
+        arcpy.AddMessage("Renaming Files")
+        arcpy.env.workspace = HUC8_AOI_Erase_gdb
+        in_data =  "Erase_Areas_XXXXXXXX"
+        out_data = "Erase_Areas_{0}".format(HUC8)
+        data_type = "FeatureClass"
+        arcpy.management.Rename(in_data, out_data, data_type)
 
-            #rename Erase_Areas_XXXXXXXX to Erase_Areas_HUC8
-            arcpy.AddMessage("Renaming Files")
-            arcpy.env.workspace = HUC8_AOI_Erase_gdb
-            in_data =  "Erase_Areas_XXXXXXXX"
-            out_data = "Erase_Areas_{0}".format(HUC8)
-            data_type = "FeatureClass"
-            arcpy.management.Rename(in_data, out_data, data_type)
+        #rename S_AOI_Ar_XXXXXXXX to S_AOI_Ar_HUC8
+        arcpy.env.workspace = os.path.join(HUC8_AOI_Erase_gdb, "FFRMS_Spatial_Layers")
+        in_data =  "S_AOI_Ar_XXXXXXXX"
+        out_data = "S_AOI_Ar_{0}".format(HUC8)
+        data_type = "FeatureClass"
+        arcpy.management.Rename(in_data, out_data, data_type)
 
-            #rename S_AOI_Ar_XXXXXXXX to S_AOI_Ar_HUC8
-            arcpy.env.workspace = os.path.join(HUC8_AOI_Erase_gdb, "FFRMS_Spatial_Layers")
-            in_data =  "S_AOI_Ar_XXXXXXXX"
-            out_data = "S_AOI_Ar_{0}".format(HUC8)
-            data_type = "FeatureClass"
-            arcpy.management.Rename(in_data, out_data, data_type)
-
-def Create_Backup_Files(HUC8_list):
+def Create_Backup_Files(HUC8):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Creating Backup Files #####")
-    for HUC8 in HUC8_list:
-        HUC8_folder = os.path.join(handy_folder, HUC8)
-        HUC8_input_folder = os.path.join(HUC8_folder, "inputs")
-        HUC8_backup_folder = os.path.join(HUC8_input_folder, "{0}_backup_files".format(HUC8))
-        HUC8_input_a_folder = os.path.join(HUC8_input_folder, "{0}_a".format(HUC8))
+    
+    HUC8_folder = os.path.join(handy_folder, HUC8)
+    HUC8_input_folder = os.path.join(HUC8_folder, "inputs")
+    HUC8_backup_folder = os.path.join(HUC8_input_folder, "{0}_backup_files".format(HUC8))
+    HUC8_input_a_folder = os.path.join(HUC8_input_folder, "{0}_a".format(HUC8))
 
-        arcpy.AddMessage("Creating backup files for HUC8 {0}".format(HUC8))
+    arcpy.AddMessage("Creating backup files for HUC8 {0}".format(HUC8))
 
-        if not os.path.exists(HUC8_backup_folder):
-            shutil.copytree(HUC8_input_a_folder, HUC8_backup_folder)
+    if not os.path.exists(HUC8_backup_folder):
+        shutil.copytree(HUC8_input_a_folder, HUC8_backup_folder)
             
 if __name__ == '__main__':
 
     # Gather Parameter inputs from tool
     Production_Folder = arcpy.GetParameterAsText(0)
-    FIPS_Code = arcpy.GetParameterAsText(1)[:5]
+    HUC8 = arcpy.GetParameterAsText(1)
     Tool_Template_Folder = arcpy.GetParameterAsText(2) #Assuming this is already cleaned up in a file folder
 
     #Add leading 0 to FIPS code if necessary
-    if len(FIPS_Code) == 4:
-        FIPS_Code = "0" + FIPS_Code
+    if len(HUC8) == 7:
+        warn("HUC8 code should be 8 digits. Adding leading 0 to HUC8 code")
+        FIPS_Code = "0" + HUC8
         
     #Set environment variables
     arcpy.env.workspace = Production_Folder
@@ -474,24 +466,17 @@ if __name__ == '__main__':
     #Create handy folder within County Production Folder
     handy_folder = Create_Handy_Folder(Production_Folder)
 
-    #Get County Boundary from Shapefile
-    county_boundary, county_name, state_name, state_abrv = Get_County_Info(FIPS_Code, county_shapefile)
-    
-    #Get HUC8s features in County
-    County_HUC8s, HUC8_list = Get_All_HUC8s_in_County(county_boundary, HUC8_Shapefile)
-
     #Create HUC8_folders in handy_folder
-    HUC8_list = Create_HUC8_folders(HUC8_list)
-
-    if len(HUC8_list) == 0:
+    Process = Create_HUC8_folder(handy_folder, HUC8)
+    if Process == False:
         arcpy.AddMessage(u"\u200B")
-        arcpy.AddMessage("#### All HANDy INPUTS ALREADY CREATED FOR THIS COUNTY ####")
+        arcpy.AddMessage("#### All HANDy INPUTS ALREADY CREATED FOR THIS HUC8 ####")
         arcpy.AddWarning("This tool will not overwrite existing inputs")
         arcpy.AddWarning("If you want to re-create a HUC8's inputs, move or delete the HUC8_a folder and try again")
         sys.exit()
 
     #Buffer HUC8s in handy_folder by 1km
-    Create_HUC8_Shapefiles(HUC8_list, County_HUC8s)
+    Create_HUC8_Shapefile(HUC8, HUC8_Shapefile)
 
     #Get Filenames for NFHL data
     S_Profil_Basln, S_BFE, S_XS, L_XS_Elev, S_Fld_Haz_Ar = find_NFHL_files(NFHL_data)
@@ -500,22 +485,21 @@ if __name__ == '__main__':
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("Finding static BFEs in S_Fld_Haz_Ar files")
     S_Fld_Haz_Ar_Static_BFE = Create_S_Fld_Haz_Ar_Static_BFE(S_Fld_Haz_Ar, "S_Fld_Haz_Ar_Static_BFE")
-    S_Fld_Haz_Ar_Static_BFE_MIP = None
 
     #Select NFHL data by HUC8 for each FVA feature 
-    Select_NFHL_by_HUC("S_Profil_Basln", S_Profil_Basln, HUC8_list, True)
-    Select_NFHL_by_HUC("S_BFE", S_BFE, HUC8_list, False)
-    Select_NFHL_by_HUC("S_Fld_Haz_Ar_Static_BFE", S_Fld_Haz_Ar_Static_BFE, HUC8_list, False)
-    Select_NFHL_by_HUC("S_XS", S_XS, HUC8_list, False)
+    Select_NFHL_by_HUC("S_Profil_Basln", S_Profil_Basln, HUC8, True)
+    Select_NFHL_by_HUC("S_BFE", S_BFE, HUC8, False)
+    Select_NFHL_by_HUC("S_Fld_Haz_Ar_Static_BFE", S_Fld_Haz_Ar_Static_BFE, HUC8, False)
+    Select_NFHL_by_HUC("S_XS", S_XS, HUC8, False)
 
-    #loop through all HUC8 folders and select L_XS_Elev based on XS values
-    Create_L_XS_Tables(HUC8_list, L_XS_Elev)
+    #Select L_XS_Elev based on XS values
+    Create_L_XS_Table(HUC8, L_XS_Elev)
 
-    #Copy HUC_AOI_Erase_gdb to each HUC8 folder
-    Copy_AOI_Erase_GDB(HUC8_list, HUC_AOI_Erase_gdb)
+    #Copy HUC_AOI_Erase_gdb to  HUC8 folder
+    Copy_AOI_Erase_GDB(HUC8, HUC_AOI_Erase_gdb)
 
     #Loop through HUC8 folders and copy the _a folder to _backup_files folder
-    Create_Backup_Files(HUC8_list)
+    Create_Backup_Files(HUC8)
 
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### FVA Input Processing Complete #####")
