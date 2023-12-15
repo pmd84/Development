@@ -1,4 +1,6 @@
 ﻿import arcpy
+from arcpy import AddMessage as msg
+from arcpy import AddWarning as warn
 import sys
 from sys import argv
 import os
@@ -269,12 +271,25 @@ def Add_County_Info_to_S_FFRMS_Proj_Ar(FFRMS_Geodatabase, county_boundary, FIPS_
     today_date = datetime.datetime.now()
     today_date = today_date.strftime("%m/%d/%Y")
 
+    msg("Today's date is {0}".format(today_date))
+    msg("Publication date for county is {0}".format(pub_date))
+
+    #If today_date is after pub_date (which is in %m/%d/%Y format), set prod_date equal to pub_date minus one day
+    if today_date >= pub_date:
+        pub_date = datetime.datetime.strptime(pub_date, "%m/%d/%Y")
+        prod_date = pub_date - datetime.timedelta(days=1)
+        prod_date = prod_date.strftime("%m/%d/%Y")
+        msg("Today's date is after publication date - setting prod_date to {0}".format(prod_date))
+    else:
+        msg("Today's date is before publication date - setting prod_date to {0}".format(today_date))
+        prod_date = today_date
+
     with arcpy.da.UpdateCursor(S_FFRMS_Proj_Ar, ["FIPS", "POL_NAME1", "EFF_DATE", "PROD_DATE", "LIDAR_DATE", "SOURCE_CIT", "PROJECTION", "PROJ_ZONE", "PROJ_UNIT", "CASE_NO", "NOTES"]) as cursor:
         for row in cursor:
             row[0] = FIPS_code[:5]
             row[1] = county_name
             row[2] = r"6/30/2023"
-            row[3] = today_date
+            row[3] = prod_date
             row[4] = r"8/8/8888"
             row[5] = "STUDY1"
             row[6] = "UNIVERSAL TRANSVERSE MERCATOR"

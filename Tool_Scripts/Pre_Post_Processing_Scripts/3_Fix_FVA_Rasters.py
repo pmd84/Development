@@ -636,7 +636,6 @@ def calc_fva_diff2(raster_list, temp_gdb):
 
     return failed
         
-
 def calc_fva_diff(l_fva_raster_path, h_fva_raster_path, temp_gdb):
 
     """
