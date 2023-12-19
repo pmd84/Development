@@ -33,6 +33,7 @@ def setup_workspace():
 
     # Create file geodatabase
     msg("Creating temp.gdb within temp folder")
+    
     if not os.path.exists(temp_gdb):
         mgmt.CreateFileGDB(temp_dir, 'temp.gdb', 'CURRENT')
 
