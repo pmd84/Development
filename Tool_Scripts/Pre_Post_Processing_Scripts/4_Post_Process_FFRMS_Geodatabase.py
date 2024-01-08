@@ -7,6 +7,8 @@ Script documentation
                                         arcpy.SetParameterAsText()
 """
 import arcpy
+from arcpy import AddMessage as msg
+from arcpy import AddWarning as warn
 from sys import argv
 import sys
 import os
@@ -31,6 +33,7 @@ def Check_Source_Data(Tool_Template_Folder):
         arcpy.AddMessage("Tool Template Files folder found")
 
     NFHL_data = os.path.join(Tool_Template_Folder, "rFHL_20230630.gdb")
+    levee_features = os.path.join(Tool_Template_Folder, "NLD", "231020_system_areas.shp")
 
     #Check or existence of template data
     if not os.path.exists(NFHL_data):
@@ -39,7 +42,13 @@ def Check_Source_Data(Tool_Template_Folder):
     else:
         arcpy.AddMessage("{0} found".format(os.path.basename(NFHL_data)))
 
-    return NFHL_data
+    if not os.path.exists(levee_features):
+        arcpy.AddError("No levee features found in Tool Template Files folder. Please manually add levee features to Tool Template Files folder and try again".format(os.path.basename(levee_features)))
+        sys.exit()
+    else:
+        arcpy.AddMessage("{0} found".format(os.path.basename(levee_features)))
+
+    return NFHL_data, levee_features
 
 def Convert_Rasters_to_Polygon(FFRMS_Geodatabase):
     # 1.    Find the FVA0 and FVA03 raster in the geodatabase
@@ -215,80 +224,6 @@ def Erase_without_tool(input_features,erase_features,output_feature_class):
         #dissolve
         arcpy.Dissolve_management(in_features=clipped,
                                 out_feature_class=output_feature_class)
-
-def Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, FIPS_code):
-    arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Populating S_AOI_Ar #####")    
-        
-    S_AOI_Ar = os.path.join(FFRMS_Geodatabase, "S_AOI_Ar")
-
-    riv_or_cst = os.path.basename(FFRMS_Geodatabase).split("_")[-1][:1]
-
-    #set paths
-    NFHL_not_FVA00 = os.path.join("in_memory", "NFHL_100yr_not_FVA00")
-    FVA00_not_NFHL = os.path.join("in_memory", "FVA00_not_NFHL_100yr")
-
-    #Erases features from input, and dissolves to single multipart feature class
-    arcpy.AddMessage("Creating comparison polygons between NFHL_100yr and FVA00")
-    Erase_without_tool(input_features = NFHL_100yr, erase_features=FV00_polygon, output_feature_class=NFHL_not_FVA00)
-    Erase_without_tool(input_features = FV00_polygon, erase_features=NFHL_100yr, output_feature_class=FVA00_not_NFHL)
-
-    #Append both feature classes to S_AOI_Ar
-    arcpy.AddMessage("Appending to S_AOI_Ar")
-
-    aoi_info_already_populated = [row[0] for row in arcpy.da.SearchCursor(S_AOI_Ar, ["AOI_INFO"])]
-    NFHL_not_FVA00_text = "The FEMA Special Flood Hazard Area (SFHA) in this area is not included in the FVA0 grid. This may be due to differences in the terrain data used or engineering and mapping judgements made during the FEMA flood study."
-    FVA00_not_NFHL_text = "The FVA0 grid in this area is not included in the FEMA Special Flood Hazard Area (SFHA). This may be due to differences in the terrain data used or engineering and mapping judgements made during the FEMA flood study."
-    
-    if NFHL_not_FVA00_text in aoi_info_already_populated:
-        arcpy.AddWarning("NFHL vs FVA00 comparison polygons already exist in S_AOI_Ar - manually delete and re-run if you want to update")
-    else:
-        arcpy.management.Append(NFHL_not_FVA00, S_AOI_Ar, "NO_TEST")
-        row_count = int(arcpy.GetCount_management(S_AOI_Ar).getOutput(0))
-        with arcpy.da.UpdateCursor(S_AOI_Ar, ["AOI_TYP", "AOI_ISSUE", "AOI_INFO", "NOTES"]) as cursor:
-            for i, row in enumerate(cursor):
-                if i == row_count - 1:
-                    row[0] = "4000"
-                    row[1] = "4100"
-                    row[2] = NFHL_not_FVA00_text
-                    row[3] = "NP"
-                    cursor.updateRow(row)
-
-    if FVA00_not_NFHL_text in aoi_info_already_populated:
-        arcpy.AddWarning("FVA00 vs NFHL comparison polygons already exist in S_AOI_Ar - manually delete and re-run if you want to update")
-    else:
-        arcpy.management.Append(FVA00_not_NFHL, S_AOI_Ar, "NO_TEST")
-        row_count = int(arcpy.GetCount_management(S_AOI_Ar).getOutput(0))
-        with arcpy.da.UpdateCursor(S_AOI_Ar, ["AOI_TYP", "AOI_ISSUE", "AOI_INFO", "NOTES"]) as cursor:
-            for i, row in enumerate(cursor):
-                if i == row_count - 1:
-                    row[0] = "4000"
-                    row[1] = "4100"
-                    row[2] = FVA00_not_NFHL_text
-                    row[3] = "NP"
-                    cursor.updateRow(row)
-
-    #populate all fields
-    arcpy.AddMessage("Updating Fields in S_AOI_Ar")
-    fema_statement = r"Please contact your FEMA Regional FFRMS Specialist for additional information at FEMA-FFRMS-Support-Request@fema.dhs.gov"
-    aoi_issue_values = {"3060", 3060, "PFD area", #Coastal
-                        "3070", 3070, "4020", 4020, "Complex engineering area", #Both Coastal and Riverine
-                        "3080", 3080, "4030", 4030, "Levee", #Both Coastal and Riverine
-                        "3090", 3090, "4070", 4070, "Non-levee flood control structures" #Both Coastal and Riverine
-                        }
-
-    with arcpy.da.UpdateCursor(S_AOI_Ar, ["AOI_ID", "POL_NAME1", "FIPS", "NOTES", "AOI_INFO", "AOI_ISSUE"]) as cursor:
-        for i, row in enumerate(cursor):
-            row[0] = "{0}{1}_{2}".format(riv_or_cst,FIPS_code,i + 1)
-            row[1] = county_name
-            row[2] = FIPS_code
-            if row[3] == None:
-                row[3] = "NP"
-            if row[4] == None:
-                row[4] = "NP"
-            if row[5] in aoi_issue_values:
-                row[4] = fema_statement
-            cursor.updateRow(row)
 
 def Create_S_Raster_QC_Copy(S_Raster_QC_pt):
     #create temporary copys of S_Raster_QC_pt for 01 and 02 in memory
@@ -547,6 +482,227 @@ def get_county_info(FFRMS_Geodatabase):
     county_name = arcpy.SearchCursor(S_FFRMS_Proj_Ar).next().getValue("POL_NAME1")
     return S_FFRMS_Proj_Ar, county_boundary, county_name
     
+def select_levee_features(FV03_polygon, levee_features):
+        
+    levee_output_location = "in_memory"
+
+    levee_FVA03 = os.path.join(levee_output_location, "levee_FVA03")
+    
+    if arcpy.Exists(levee_FVA03):
+        return levee_FVA03
+    
+    arcpy.MakeFeatureLayer_management(levee_features, "levee_features")
+    arcpy.SelectLayerByLocation_management("levee_features", "INTERSECT", FV03_polygon)
+    arcpy.CopyFeatures_management("levee_features", levee_FVA03)
+    return levee_FVA03
+
+def Add_Levees_to_S_AOI_Ar(FV03_polygon, S_AOI_Ar, levee_features, AOI_INFO_text):
+
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Populating S_AOI_Ar with Levee features #####")
+
+    levee_FVA03 = select_levee_features(FV03_polygon, levee_features)
+    arcpy.AddMessage("Number of Levees found in FVA03: {0}".format(arcpy.GetCount_management(levee_FVA03).getOutput(0)))
+
+    # Count number of entries in S_AOI_Ar before appending
+    num_entries_before = int(arcpy.GetCount_management(S_AOI_Ar).getOutput(0))
+    msg("Number of S_AOI_Ar entries before appending: {0}".format(num_entries_before))
+    
+    msg("Appending new levee features to S_AOI_Ar features...")
+    arcpy.management.Append(levee_FVA03, S_AOI_Ar, "NO_TEST")
+
+    #loop through appended feautres with update cursor and add values to 
+    msg("Adding fields to new features ...")
+    AOI_Typ = "4000" #Riverine
+    AOI_Issue = "4030" #Levee
+    
+    row_start = num_entries_before 
+    with arcpy.da.UpdateCursor(S_AOI_Ar, ["AOI_TYP", "AOI_ISSUE", "AOI_INFO", "NOTES"]) as cursor:
+        #only update new features
+        for row_num, row in enumerate(cursor):
+            if row_num >= row_start:
+                row[0] = AOI_Typ
+                row[1] = AOI_Issue
+                row[2] = AOI_INFO_text
+                row[3] = "NP"
+                cursor.updateRow(row)
+    
+    msg("Deleting duplicate levee features...")
+    msg("Number of features prior to deleting identical levees: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
+
+    try:
+        arcpy.management.AddField(S_AOI_Ar, "Len_Round", "DOUBLE")
+    except:
+        pass
+    arcpy.management.CalculateField(S_AOI_Ar, "Len_Round", "round(!Shape_Length!, 1)", "PYTHON3")
+    arcpy.management.DeleteIdentical(in_dataset=S_AOI_Ar, fields=["Len_Round"])
+    arcpy.management.DeleteField(S_AOI_Ar, "Len_Round")
+
+    msg("Number of features after deleting identical levees: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
+
+    return S_AOI_Ar
+
+def Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, FIPS_code, AOI_INFO_text):
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Populating S_AOI_Ar #####")    
+        
+    S_AOI_Ar = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers", "S_AOI_Ar")
+
+    riv_or_cst = os.path.basename(FFRMS_Geodatabase).split("_")[-1][:1]
+
+    #set paths
+    NFHL_not_FVA00 = os.path.join("in_memory", "NFHL_100yr_not_FVA00")
+    FVA00_not_NFHL = os.path.join("in_memory", "FVA00_not_NFHL_100yr")
+
+    #Erases features from input, and dissolves to single multipart feature class
+    arcpy.AddMessage("Creating comparison polygons between NFHL_100yr and FVA00")
+    Erase_without_tool(input_features = NFHL_100yr, erase_features=FV00_polygon, output_feature_class=NFHL_not_FVA00)
+    Erase_without_tool(input_features = FV00_polygon, erase_features=NFHL_100yr, output_feature_class=FVA00_not_NFHL)
+
+    #Append both feature classes to S_AOI_Ar
+    arcpy.AddMessage("Appending to S_AOI_Ar")
+
+    aoi_notes_already_populated = [row[0] for row in arcpy.da.SearchCursor(S_AOI_Ar, ["NOTES"])]
+    aoi_info_already_populated = [row[0] for row in arcpy.da.SearchCursor(S_AOI_Ar, ["AOI_INFO"])]
+
+    NFHL_not_FVA00_text = "The FEMA Special Flood Hazard Area (SFHA) in this area is not included in the FVA0 grid. This may be due to differences in the terrain data used or engineering and mapping judgements made during the FEMA flood study."
+    FVA00_not_NFHL_text = "The FVA0 grid in this area is not included in the FEMA Special Flood Hazard Area (SFHA). This may be due to differences in the terrain data used or engineering and mapping judgements made during the FEMA flood study."
+    
+    #populate S_AOI with NFHL_not_FVA00 polygon
+    if NFHL_not_FVA00_text in aoi_notes_already_populated or NFHL_not_FVA00_text in aoi_info_already_populated:
+        arcpy.AddWarning("NFHL vs FVA00 comparison polygons already exist in S_AOI_Ar - manually delete and re-run if you want to update")
+    else:
+        arcpy.management.Append(NFHL_not_FVA00, S_AOI_Ar, "NO_TEST")
+        row_count = int(arcpy.GetCount_management(S_AOI_Ar).getOutput(0))
+        with arcpy.da.UpdateCursor(S_AOI_Ar, ["AOI_TYP", "AOI_ISSUE", "AOI_INFO", "NOTES"]) as cursor:
+            for i, row in enumerate(cursor):
+                if i == row_count - 1:
+                    row[0] = "4000"
+                    row[1] = "4100"
+                    row[2] = AOI_INFO_text
+                    row[3] = NFHL_not_FVA00_text
+                    cursor.updateRow(row)
+
+    #populate S_AOI with FVA00_not_NFHL polygon
+    if FVA00_not_NFHL_text in aoi_notes_already_populated or FVA00_not_NFHL_text in aoi_info_already_populated:
+        arcpy.AddWarning("FVA00 vs NFHL comparison polygons already exist in S_AOI_Ar - manually delete and re-run if you want to update")
+    else:
+        arcpy.management.Append(FVA00_not_NFHL, S_AOI_Ar, "NO_TEST")
+        row_count = int(arcpy.GetCount_management(S_AOI_Ar).getOutput(0))
+        with arcpy.da.UpdateCursor(S_AOI_Ar, ["AOI_TYP", "AOI_ISSUE", "AOI_INFO", "NOTES"]) as cursor:
+            for i, row in enumerate(cursor):
+                if i == row_count - 1:
+                    row[0] = "4000"
+                    row[1] = "4100"
+                    row[2] = AOI_INFO_text
+                    row[3] = FVA00_not_NFHL_text
+                    cursor.updateRow(row)
+
+    #populate all fields
+    arcpy.AddMessage("Updating Fields in S_AOI_Ar")
+    with arcpy.da.UpdateCursor(S_AOI_Ar, ["AOI_ID", "POL_NAME1", "FIPS", "AOI_INFO", "NOTES"]) as cursor:
+        for i, row in enumerate(cursor):
+            aoi_id = "{0}{1}_{2}".format(riv_or_cst,FIPS_code,i + 1)
+            row[0] = aoi_id
+            row[1] = county_name
+            row[2] = FIPS_code
+            if row[3] == None:  #If AOI_Info is empty, populate with FEMA statement
+                msg(f"No AOI_Info text found for {aoi_id} - populating with FEMA statement")
+                row[3] = AOI_INFO_text
+            elif row[3] != AOI_INFO_text: #AOI_Info already populated, but not with proper AOI_Info text - move existing text over to Notes, then populate with FEMA statement  
+                msg(f"AOI_Info text found for {aoi_id} - moving to notes, and populating with FEMA statement")
+                row[4] = row[3]
+                row[3] = AOI_INFO_text
+            else:
+                msg(f"Proper AOI_Info text found for {aoi_id} - no changes made")
+            if row[4] == None:
+                msg(f"No Notes text found for {aoi_id} - populating with NP")
+                row[4] = "NP"
+            cursor.updateRow(row)
+
+def Add_CNMS_Lines_to_S_AOI_Ar(FFRMS_Geodatabase, NFHL_data, county_boundary, FV03_polygon, S_AOI_Ar, AOI_INFO_text):
+    temp_output_location = os.path.join(FFRMS_Geodatabase)
+    CNMS_file = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\CNMS\230613_FY23Q2_STARRII_CNMS_Tiers345.gdb\R8_R9_10_FFRMS_All_Scope"
+    NFHL_S_XS = os.path.join(NFHL_data, "FIRM_Spatial_Layers", "S_XS")
+    NFHL_S_BFE = os.path.join(NFHL_data, "FIRM_Spatial_Layers", "S_BFE")
+    temp_output_location = "in_memory"
+    
+    #Create combined S_XS and S_BFE feature class
+    arcpy.AddMessage("Creating combined S_XS and S_BFE feature class")
+    NFHL_S_XS_BFE = os.path.join(temp_output_location, "NFHL_S_XS_BFE")
+    arcpy.management.Merge([NFHL_S_XS, NFHL_S_BFE], NFHL_S_XS_BFE)
+
+    #select CNMS AOIs that intersect with county boundary
+    arcpy.AddMessage("Selecting CNMS AOIs that intersect with county boundary")
+    County_CNMS_Lines = os.path.join(temp_output_location, "County_CNMS_Lines")
+    arcpy.analysis.Clip(CNMS_file, county_boundary, County_CNMS_Lines)
+
+    #Select CNMS AOIs where the MIP_Data_Avail field is Null or F
+    arcpy.AddMessage("Selecting CNMS AOIs where the MIP_Data_Avail field is Null or F")
+    CNMS_Lines_MIP_False = arcpy.MakeFeatureLayer_management(County_CNMS_Lines, "CNMS_Lines_MIP_False")
+    arcpy.management.SelectLayerByAttribute(CNMS_Lines_MIP_False, "NEW_SELECTION", "MIP_Data_Avail = 'F' OR MIP_Data_Avail = 'FALSE (No)' or MIP_Data_Avail = 'FALSE'")
+    arcpy.management.CopyFeatures(CNMS_Lines_MIP_False, os.path.join(temp_output_location, "CNMS_AOIs_MIP_False")) #! Delete after testing
+    
+    #Select CNMS AOIs that intersect 1 or fewer NFHL XS or BFE
+    arcpy.AddMessage("Selecting CNMS AOIs that intersect 1 or fewer NFHL XS or BFE")
+    target_features = CNMS_Lines_MIP_False
+    intersect_features = NFHL_S_XS_BFE
+
+    # Perform a Spatial Join
+    msg("Performing spatial join...")
+    spatial_join_result = os.path.join(temp_output_location, "SpatialJoinResult")
+    arcpy.analysis.SpatialJoin(target_features, intersect_features, spatial_join_result, "JOIN_ONE_TO_ONE", "KEEP_ALL", match_option="INTERSECT")
+
+    # Select the features from target where the count is 0 or 1
+    count_field = "Join_Count"
+    CNMS_Lines_MIP_False_No_NFHL = arcpy.MakeFeatureLayer_management(spatial_join_result, "CNMS_Lines_MIP_False_No_NFHL")
+    arcpy.management.SelectLayerByAttribute(CNMS_Lines_MIP_False_No_NFHL, "NEW_SELECTION", f"{count_field} <= 1")
+
+    # Export the selected features to a new feature class
+    msg("Copying chosen CNMS lines features")
+    Selected_CNMS_Lines = os.path.join(temp_output_location, "Selected_CNMS_Lines")
+    arcpy.CopyFeatures_management(CNMS_Lines_MIP_False_No_NFHL, Selected_CNMS_Lines)
+
+    #Get count of CNMS_Lines_MIP_False_No_NFHL
+    Num_CNMS_Lines = arcpy.GetCount_management(CNMS_Lines_MIP_False_No_NFHL).getOutput(0)
+    arcpy.AddMessage("Number of CNMS AOIs that intersect 1 or fewer NFHL XS or BFE: {0}".format(Num_CNMS_Lines))
+
+    if Num_CNMS_Lines == "0":
+        arcpy.AddMessage("No CNMS AOIs that intersect 1 or fewer NFHL XS or BFE - skipping CNMS AOI processing")
+        return
+
+    #Buffer selected CNMS AOIs by 20 feet
+    CNMS_Lines_MIP_False_No_NFHL_buffer = os.path.join(temp_output_location, "CNMS_Lines_MIP_False_No_NFHL_buffer")
+    buffer_distance = "300 Feet"
+    dissolve = "ALL"
+    arcpy.AddMessage(f"Buffering selected CNMS lines by {buffer_distance}")
+    arcpy.analysis.Buffer(CNMS_Lines_MIP_False_No_NFHL, CNMS_Lines_MIP_False_No_NFHL_buffer, buffer_distance, "FULL", "ROUND", dissolve_option = dissolve, method = "PLANAR")
+
+    #Delete any part of the buffer that is within with the FVA03 floodplain
+    arcpy.AddMessage("Deleting any part of the buffer that is within with the FVA03 floodplain")
+    CNMS_AOIs = os.path.join(temp_output_location, "CNMS_AOIs")
+    arcpy.analysis.Erase(CNMS_Lines_MIP_False_No_NFHL_buffer, FV03_polygon, CNMS_AOIs)
+
+    #Get count of CNMS_AOIS
+    arcpy.AddMessage("Number of Merged CNMS AOIs: {0}".format(arcpy.GetCount_management(CNMS_AOIs).getOutput(0)))
+
+    #Append CNMS AOIs to S_AOI_Ar
+    arcpy.AddMessage("Appending CNMS AOIs to S_AOI_Ar")
+    num_entries_before = int(arcpy.GetCount_management(S_AOI_Ar).getOutput(0))
+    arcpy.management.Append(CNMS_AOIs, S_AOI_Ar, "NO_TEST")
+
+    #Populate Fields
+    row_start = num_entries_before 
+    with arcpy.da.UpdateCursor(S_AOI_Ar, ["AOI_TYP", "AOI_ISSUE", "AOI_INFO", "NOTES"]) as cursor:
+        #only update new features
+        for row_num, row in enumerate(cursor):
+            if row_num >= row_start:
+                row[0] = "1000" #Data Collection 
+                row[1] = "1020" #MIP search undertaken - data not found
+                row[2] = "AOI_INFO_text"
+                row[3] = "NP"
+                cursor.updateRow(row)
+
 if __name__ == "__main__":
     
     FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
@@ -563,21 +719,37 @@ if __name__ == "__main__":
 
     S_FFRMS_Proj_Ar, county_boundary, county_name = get_county_info(FFRMS_Geodatabase)
 
-    NFHL_data = Check_Source_Data(Tool_Template_Folder)
+    NFHL_data, levee_features = Check_Source_Data(Tool_Template_Folder)
 
     FV00_polygon, FV03_polygon = Convert_Rasters_to_Polygon(FFRMS_Geodatabase)
 
     NFHL_100yr = Extract_NFHL_100yr_Floodplain(FIPS_code, FFRMS_Geodatabase, NFHL_data, S_FFRMS_Proj_Ar)
 
-    S_FFRMS_Ar = os.path.join(FFRMS_Geodatabase,"S_FFRMS_Ar")
+    S_FFRMS_Ar = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers", "S_FFRMS_Ar")
+    S_AOI_Ar = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers", "S_AOI_Ar")
+    AOI_INFO_text = r"Please contact your FEMA Regional FFRMS Specialist for additional information at FEMA-FFRMS-Support-Request@fema.dhs.gov"
 
+    #Populate all S_FFRMS_AR Fields
     Populate_S_FFRMS_Ar(FV03_polygon, S_FFRMS_Proj_Ar, S_FFRMS_Ar, county_name, FIPS_code)
 
-    Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, FIPS_code)
+    #CNMS AOIs
+    Add_CNMS_Lines_to_S_AOI_Ar(FFRMS_Geodatabase, NFHL_data, county_boundary, FV03_polygon, S_AOI_Ar, AOI_INFO_text)
+    
+    #Levees
+    S_AOI_Ar = Add_Levees_to_S_AOI_Ar(FV03_polygon, S_AOI_Ar, levee_features, AOI_INFO_text)
 
+    #Populate all S_AOI_Ar fields
+    Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, FIPS_code, AOI_INFO_text)
+
+    #Delete identical records:
+    msg("Deleting any remaining identical records...")
+    msg("Number of features prior to deleting identical features: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
+    arcpy.management.DeleteIdentical(in_dataset=S_AOI_Ar, fields=["Shape"], xy_tolerance="1 Meters")
+    msg("Number of features after deleting identical records: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
+
+    # Populate S_Raster_QC_pt
     S_Raster_QC_pt = Populate_S_Raster_QC_pt(FFRMS_Geodatabase, NFHL_data, Tool_Output_Folders, county_boundary, FIPS_code, county_name)
     
-    #Check_QC_Pass_Rate(S_Raster_QC_pt)
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Assessing QC Point pass rate #####")
 

@@ -68,20 +68,6 @@ def Check_Source_Data(Tool_Template_Folder, S_AOI_Ar):
     else:
         msg("{0} found".format(os.path.basename(levee_features)))
 
-        # Find S_AOI_Ar features within "FFRMS_Spatial_Layers"
-    # msg("Finding S_AOI_Ar features within 'FFRMS_Spatial_Layers'...")
-    # arcpy.env.workspace = os.path.join(HUC_AOI_Erase_Area, "FFRMS_Spatial_Layers")
-    # fcs = arcpy.ListFeatureClasses()
-    # S_AOI_Ar = None
-    # for fc in fcs:
-    #     if "S_AOI_Ar" in fc:
-    #         msg("{0} found".format(fc))
-    #         S_AOI_Ar = os.path.join(HUC_AOI_Erase_Area, "FFRMS_Spatial_Layers", fc)
-    #         break
-    # if S_AOI_Ar is None:
-    #     arcpy.AddError("S_AOI_Ar feature class not found. Please add to AOIs_Erase_Area.gdb and try again")
-    #     sys.exit()
-    
     return levee_features, S_AOI_Ar
 
 def Convert_Rasters_to_Polygon(FVA03_raster):
@@ -144,17 +130,6 @@ def select_levee_features(FV03_polygon):
     arcpy.CopyFeatures_management("levee_features", levee_FVA03)
     return levee_FVA03
     
-def create_geometry_hash(feature_class, ID_Field="OBJECTID"):
-    """
-    Create a hash table of geometry WKTs.
-    """
-    geometry_hashes = {}
-    with arcpy.da.SearchCursor(feature_class, [f"{ID_Field}", 'SHAPE@']) as cursor:
-        for row in cursor:
-            geom_hash = hash(row[1].WKT)
-            geometry_hashes[geom_hash] = row[0]
-    return geometry_hashes
-    
 if __name__ == '__main__':
 
     setup_workspace()
@@ -183,12 +158,7 @@ if __name__ == '__main__':
 
     # delete identical records:
     msg("Deleting identical records...")
-    arcpy.management.DeleteIdentical(
-    in_dataset=S_AOI_Ar,
-    fields="Shape",
-    xy_tolerance=None,
-    z_tolerance=0
-)
+    arcpy.management.DeleteIdentical(in_dataset=S_AOI_Ar, fields="Shape", xy_tolerance=None, z_tolerance=0)
 
     #loop through appended feautres with update cursor and add values to 
     msg("Adding fields to new features ...")

@@ -233,13 +233,19 @@ def Get_County_Info(fips_code, county_shapefile):
     state_abrv = state_name_abrv_dict[state_name]
 
     try:
-        pub_date = arcpy.da.SearchCursor(county_boundary, "FEMA").next()[0]
-        pub_date = pub_date.strftime("%m/%d/%Y")
+        pub_date_string = arcpy.da.SearchCursor(county_boundary, "FEMA").next()[0]
+        if isinstance(pub_date_string, datetime.datetime):
+            msg("FEMA publication date found in county boundary shapefile - converting to datetime string")
+            pub_date_string = pub_date_string.strftime("%m/%d/%Y")
+        else:
+            msg("FEMA publication date found in county boundary shapefile")
+            pass
+
     except:
-        pub_date = ""
+        pub_date_string = ""
         arcpy.AddWarning("FEMA publication date not found in county boundary shapefile - please add manually to L_Source_Cit")
 
-    return county_boundary, county_name, state_name, state_abrv, pub_date
+    return county_boundary, county_name, state_name, state_abrv, pub_date_string
 
 def Reproject_FFRMS_gdb_Feature_Classes(Output_Spatial_Reference, FFRMS_Geodatabase, UTM_zone):
     arcpy.AddMessage(u"\u200B")
@@ -259,7 +265,7 @@ def Reproject_FFRMS_gdb_Feature_Classes(Output_Spatial_Reference, FFRMS_Geodatab
         if fc.endswith("_1"):
             arcpy.management.Rename(fc, fc[:-2])
 
-def Add_County_Info_to_S_FFRMS_Proj_Ar(FFRMS_Geodatabase, county_boundary, FIPS_code, county_name, UTM_zone, pub_date):
+def Add_County_Info_to_S_FFRMS_Proj_Ar(FFRMS_Geodatabase, county_boundary, FIPS_code, county_name, UTM_zone, pub_date_string):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Adding County Information to S_FFRMS_Proj_Ar feature class #####")
     
@@ -267,22 +273,22 @@ def Add_County_Info_to_S_FFRMS_Proj_Ar(FFRMS_Geodatabase, county_boundary, FIPS_
     
     arcpy.management.Append(inputs=county_boundary, target=S_FFRMS_Proj_Ar, schema_type="NO_TEST")
 
-    #Get today's data in form MM/DD/YYYY
-    today_date = datetime.datetime.now()
-    today_date = today_date.strftime("%m/%d/%Y")
+    #Get today's date and pub-date in parse and text format
+    today_date = datetime.datetime.today()                                #parse-time format for today
+    today_date_string = today_date.strftime("%m/%d/%Y")                 #string format for today
+    pub_date = datetime.datetime.strptime(pub_date_string, "%m/%d/%Y")  #parse-time format for pub_date
+    
+    msg("Today's date is {0}".format(today_date_string))
+    msg("Publication date for county is {0}".format(pub_date_string))
 
-    msg("Today's date is {0}".format(today_date))
-    msg("Publication date for county is {0}".format(pub_date))
-
-    #If today_date is after pub_date (which is in %m/%d/%Y format), set prod_date equal to pub_date minus one day
+    #If today_date is after pub_date, set prod_date equal to pub_date minus one day (compare parse-time formats)
     if today_date >= pub_date:
-        pub_date = datetime.datetime.strptime(pub_date, "%m/%d/%Y")
         prod_date = pub_date - datetime.timedelta(days=1)
         prod_date = prod_date.strftime("%m/%d/%Y")
         msg("Today's date is after publication date - setting prod_date to {0}".format(prod_date))
     else:
-        msg("Today's date is before publication date - setting prod_date to {0}".format(today_date))
-        prod_date = today_date
+        msg("Today's date is before publication date - setting prod_date to {0}".format(today_date_string))
+        prod_date = today_date_string
 
     with arcpy.da.UpdateCursor(S_FFRMS_Proj_Ar, ["FIPS", "POL_NAME1", "EFF_DATE", "PROD_DATE", "LIDAR_DATE", "SOURCE_CIT", "PROJECTION", "PROJ_ZONE", "PROJ_UNIT", "CASE_NO", "NOTES"]) as cursor:
         for row in cursor:
@@ -325,7 +331,7 @@ def Add_NFHL_data_to_S_Eff_0_2_pct_Ar(FFRMS_Geodatabase, NFHL_data, FIPS_code, c
 
     return S_Eff_0_2_pct_Ar
 
-def Populate_L_Source_Cit(FFRMS_Geodatabase, county_name, state_name, state_abrv, pub_date, FIPS_code):
+def Populate_L_Source_Cit(FFRMS_Geodatabase, county_name, state_name, state_abrv, pub_date_string, FIPS_code):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Populating L_Source_Cit table #####")
 
@@ -372,7 +378,7 @@ def Populate_L_Source_Cit(FFRMS_Geodatabase, county_name, state_name, state_abrv
         "TITLE": "FFRMS for {0}, {1}".format(county_name, state_abrv),
         "AUTHOR": "STARR II",
         "PUB_PLACE": "Washington, DC",
-        "PUB_DATE": "{0}".format(pub_date),
+        "PUB_DATE": "{0}".format(pub_date_string),
         "WEBLINK": r"https://hazards.fema.gov/",
         "MEDIA": "Digital",
         "VERSION_ID": "1.0.0.0.0",
@@ -480,7 +486,7 @@ if __name__ == '__main__':
     County_code = FIPS_code[2:5]
 
     #Create County Boundary shapefile
-    county_boundary, county_name, state_name, state_abrv, pub_date = Get_County_Info(FIPS_code, county_shapefile)
+    county_boundary, county_name, state_name, state_abrv, pub_date_string = Get_County_Info(FIPS_code, county_shapefile)
     
     #Create spatial reference and get UTM zone
     Output_Spatial_Reference, Spatial_Reference_String, UTM_zone  = Set_Spatial_Reference(UTM_zone, FIPS_code)
@@ -498,7 +504,7 @@ if __name__ == '__main__':
 
     #Add county boundary to S_FFRMS_Proj_AR feature class
     S_FFRMS_Proj_Ar = Add_County_Info_to_S_FFRMS_Proj_Ar(FFRMS_Geodatabase, county_boundary, FIPS_code, 
-                                                         county_name, UTM_zone, pub_date)
+                                                         county_name, UTM_zone, pub_date_string)
 
     #Add 0.2% FEMA floodplain to S_Eff_0_2_pct_Ar feature class in geodatabase
     S_Eff_0_2_pct_Ar = Add_NFHL_data_to_S_Eff_0_2_pct_Ar(FFRMS_Geodatabase, NFHL_data, FIPS_code, 
@@ -508,7 +514,7 @@ if __name__ == '__main__':
     Configure_Attribute_Domains(FFRMS_Geodatabase, Template_FFRMS_gdb, County_Deliverables_Folder)
     
     #Populate L_Source_Cit
-    Populate_L_Source_Cit(FFRMS_Geodatabase, county_name, state_name, state_abrv, pub_date, FIPS_code)
+    Populate_L_Source_Cit(FFRMS_Geodatabase, county_name, state_name, state_abrv, pub_date_string, FIPS_code)
 
     #Final check of spatial reference for feature dataset in geodatabase
     checkFinalSpatialReference(FFRMS_Geodatabase, Spatial_Reference_String)

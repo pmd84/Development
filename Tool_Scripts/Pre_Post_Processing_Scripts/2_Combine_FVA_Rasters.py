@@ -393,7 +393,7 @@ def Check_Erase_Areas(HUC8_erase_area_dict):
         with arcpy.da.UpdateCursor(Erase_Area_Feature, search_fields) as cursor:
             for row in cursor:
                 if "Y" not in row:
-                    arcpy.AddError("Erase Areas for HUC8 {0} has no 'Yes' values in row with OBJECTID {1}. Please update Erase Areas to contain at least one T value per row, and try again".format(HUC8, row[0]))
+                    arcpy.AddError("Erase Areas for HUC8 {0} has no 'Y' coded values in row with OBJECTID {1}. Please update Erase Areas to contain at least one Y value per row, and try again".format(HUC8, row[0]))
                     sys.exit()
                 
                 #Make sure lower FVAs are true if higher FVAs are true - ignoring 0_2PCT
