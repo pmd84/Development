@@ -283,7 +283,7 @@ def Add_County_Info_to_S_FFRMS_Proj_Ar(FFRMS_Geodatabase, county_boundary, FIPS_
 
     #If today_date is after pub_date, set prod_date equal to pub_date minus one day (compare parse-time formats)
     if today_date >= pub_date:
-        prod_date = pub_date - datetime.timedelta(days=1)
+        prod_date = pub_date
         prod_date = prod_date.strftime("%m/%d/%Y")
         msg("Today's date is after publication date - setting prod_date to {0}".format(prod_date))
     else:

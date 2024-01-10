@@ -496,7 +496,7 @@ def select_levee_features(FV03_polygon, levee_features):
     arcpy.CopyFeatures_management("levee_features", levee_FVA03)
     return levee_FVA03
 
-def Add_Levees_to_S_AOI_Ar(FV03_polygon, S_AOI_Ar, levee_features, AOI_INFO_text):
+def Add_Levees_to_S_AOI_Ar(FV03_polygon, S_AOI_Ar, levee_features):
 
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Populating S_AOI_Ar with Levee features #####")
@@ -523,7 +523,7 @@ def Add_Levees_to_S_AOI_Ar(FV03_polygon, S_AOI_Ar, levee_features, AOI_INFO_text
             if row_num >= row_start:
                 row[0] = AOI_Typ
                 row[1] = AOI_Issue
-                row[2] = AOI_INFO_text
+                row[2] = "NP"
                 row[3] = "NP"
                 cursor.updateRow(row)
     
@@ -542,7 +542,7 @@ def Add_Levees_to_S_AOI_Ar(FV03_polygon, S_AOI_Ar, levee_features, AOI_INFO_text
 
     return S_AOI_Ar
 
-def Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, FIPS_code, AOI_INFO_text):
+def Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, FIPS_code):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Populating S_AOI_Ar #####")    
         
@@ -579,8 +579,8 @@ def Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, 
                 if i == row_count - 1:
                     row[0] = "4000"
                     row[1] = "4100"
-                    row[2] = AOI_INFO_text
-                    row[3] = NFHL_not_FVA00_text
+                    row[2] = NFHL_not_FVA00_text
+                    row[3] = "NP"
                     cursor.updateRow(row)
 
     #populate S_AOI with FVA00_not_NFHL polygon
@@ -594,8 +594,8 @@ def Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, 
                 if i == row_count - 1:
                     row[0] = "4000"
                     row[1] = "4100"
-                    row[2] = AOI_INFO_text
-                    row[3] = FVA00_not_NFHL_text
+                    row[2] = FVA00_not_NFHL_text
+                    row[3] = "NP"
                     cursor.updateRow(row)
 
     #populate all fields
@@ -606,21 +606,15 @@ def Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, 
             row[0] = aoi_id
             row[1] = county_name
             row[2] = FIPS_code
-            if row[3] == None:  #If AOI_Info is empty, populate with FEMA statement
-                msg(f"No AOI_Info text found for {aoi_id} - populating with FEMA statement")
-                row[3] = AOI_INFO_text
-            elif row[3] != AOI_INFO_text: #AOI_Info already populated, but not with proper AOI_Info text - move existing text over to Notes, then populate with FEMA statement  
-                msg(f"AOI_Info text found for {aoi_id} - moving to notes, and populating with FEMA statement")
-                row[4] = row[3]
-                row[3] = AOI_INFO_text
-            else:
-                msg(f"Proper AOI_Info text found for {aoi_id} - no changes made")
+            if row[3] == None:
+                msg(f"No AOI_Info text found for {aoi_id} - populating with 'NP'")
+                row[3] = "NP"
             if row[4] == None:
-                msg(f"No Notes text found for {aoi_id} - populating with NP")
+                msg(f"No Notes text found for {aoi_id} - populating with 'NP'")
                 row[4] = "NP"
             cursor.updateRow(row)
 
-def Add_CNMS_Lines_to_S_AOI_Ar(FFRMS_Geodatabase, NFHL_data, county_boundary, FV03_polygon, S_AOI_Ar, AOI_INFO_text):
+def Add_CNMS_Lines_to_S_AOI_Ar(FFRMS_Geodatabase, NFHL_data, county_boundary, FV03_polygon, S_AOI_Ar):
     temp_output_location = os.path.join(FFRMS_Geodatabase)
     CNMS_file = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\CNMS\230613_FY23Q2_STARRII_CNMS_Tiers345.gdb\R8_R9_10_FFRMS_All_Scope"
     NFHL_S_XS = os.path.join(NFHL_data, "FIRM_Spatial_Layers", "S_XS")
@@ -699,7 +693,7 @@ def Add_CNMS_Lines_to_S_AOI_Ar(FFRMS_Geodatabase, NFHL_data, county_boundary, FV
             if row_num >= row_start:
                 row[0] = "1000" #Data Collection 
                 row[1] = "1020" #MIP search undertaken - data not found
-                row[2] = "AOI_INFO_text"
+                row[2] = "NP"
                 row[3] = "NP"
                 cursor.updateRow(row)
 
@@ -727,19 +721,18 @@ if __name__ == "__main__":
 
     S_FFRMS_Ar = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers", "S_FFRMS_Ar")
     S_AOI_Ar = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers", "S_AOI_Ar")
-    AOI_INFO_text = r"Please contact your FEMA Regional FFRMS Specialist for additional information at FEMA-FFRMS-Support-Request@fema.dhs.gov"
 
     #Populate all S_FFRMS_AR Fields
     Populate_S_FFRMS_Ar(FV03_polygon, S_FFRMS_Proj_Ar, S_FFRMS_Ar, county_name, FIPS_code)
 
     #CNMS AOIs
-    Add_CNMS_Lines_to_S_AOI_Ar(FFRMS_Geodatabase, NFHL_data, county_boundary, FV03_polygon, S_AOI_Ar, AOI_INFO_text)
+    Add_CNMS_Lines_to_S_AOI_Ar(FFRMS_Geodatabase, NFHL_data, county_boundary, FV03_polygon, S_AOI_Ar)
     
     #Levees
-    S_AOI_Ar = Add_Levees_to_S_AOI_Ar(FV03_polygon, S_AOI_Ar, levee_features, AOI_INFO_text)
+    S_AOI_Ar = Add_Levees_to_S_AOI_Ar(FV03_polygon, S_AOI_Ar, levee_features)
 
     #Populate all S_AOI_Ar fields
-    Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, FIPS_code, AOI_INFO_text)
+    Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, FIPS_code)
 
     #Delete identical records:
     msg("Deleting any remaining identical records...")
