@@ -488,12 +488,10 @@ def select_levee_features(FV03_polygon, levee_features):
 
     levee_FVA03 = os.path.join(levee_output_location, "levee_FVA03")
     
-    if arcpy.Exists(levee_FVA03):
-        return levee_FVA03
-    
     arcpy.MakeFeatureLayer_management(levee_features, "levee_features")
     arcpy.SelectLayerByLocation_management("levee_features", "INTERSECT", FV03_polygon)
     arcpy.CopyFeatures_management("levee_features", levee_FVA03)
+
     return levee_FVA03
 
 def Add_Levees_to_S_AOI_Ar(FV03_polygon, S_AOI_Ar, levee_features):
@@ -502,7 +500,14 @@ def Add_Levees_to_S_AOI_Ar(FV03_polygon, S_AOI_Ar, levee_features):
     arcpy.AddMessage("##### Populating S_AOI_Ar with Levee features #####")
 
     levee_FVA03 = select_levee_features(FV03_polygon, levee_features)
-    arcpy.AddMessage("Number of Levees found in FVA03: {0}".format(arcpy.GetCount_management(levee_FVA03).getOutput(0)))
+    num_levees = arcpy.GetCount_management(levee_FVA03).getOutput(0)
+
+    #move on if no levees found
+    if num_levees == "0":
+        arcpy.AddMessage("No Levees found in FVA03")
+        return S_AOI_Ar
+    
+    arcpy.AddMessage("Number of Levees found in FVA03: {0}".format(num_levees))
 
     # Count number of entries in S_AOI_Ar before appending
     num_entries_before = int(arcpy.GetCount_management(S_AOI_Ar).getOutput(0))
@@ -527,19 +532,118 @@ def Add_Levees_to_S_AOI_Ar(FV03_polygon, S_AOI_Ar, levee_features):
                 row[3] = "NP"
                 cursor.updateRow(row)
     
-    msg("Deleting duplicate levee features...")
-    msg("Number of features prior to deleting identical levees: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
+    # msg("Deleting duplicate levee features...")
+    # msg("Number of features prior to deleting identical levees: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
 
-    try:
-        arcpy.management.AddField(S_AOI_Ar, "Len_Round", "DOUBLE")
-    except:
-        pass
-    arcpy.management.CalculateField(S_AOI_Ar, "Len_Round", "round(!Shape_Length!, 1)", "PYTHON3")
-    arcpy.management.DeleteIdentical(in_dataset=S_AOI_Ar, fields=["Len_Round"])
-    arcpy.management.DeleteField(S_AOI_Ar, "Len_Round")
+    # try:
+    #     arcpy.management.AddField(S_AOI_Ar, "Len_Round", "DOUBLE")
+    # except:
+    #     pass
+    # arcpy.management.CalculateField(S_AOI_Ar, "Len_Round", "round(!Shape_Length!, 1)", "PYTHON3")
+    # arcpy.management.DeleteIdentical(in_dataset=S_AOI_Ar, fields=["Len_Round"])
+    # arcpy.management.DeleteField(S_AOI_Ar, "Len_Round")
 
-    msg("Number of features after deleting identical levees: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
+    # msg("Number of features after deleting identical levees: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
 
+    return S_AOI_Ar
+
+def Add_AH_AO_to_S_AOI_Ar(NFHL_data, county_boundary, S_AOI_Ar):
+
+    arcpy.AddMessage(u"\u200B")
+    arcpy.AddMessage("##### Populating S_AOI_Ar with AH and AO features features #####")
+
+    #Find AH and AO zones within county boundary
+    #temp_output_location = "in_memory"
+    temp_output_location = FFRMS_Geodatabase
+
+    #Clip NFHL data to county boundary
+    S_Fld_Haz_Ar = os.path.join(NFHL_data, "FIRM_Spatial_Layers","S_Fld_Haz_Ar")
+    if not arcpy.Exists(S_Fld_Haz_Ar):
+        arcpy.AddWarning("Could not find S_FLD_HAZ_AR in NFHL data")
+        return S_AOI_Ar
+    
+    arcpy.AddMessage("Clipping NFHL data to county boundary")
+    NFHL_data_clip = os.path.join(temp_output_location, "NFHL_data_clip")
+
+    if not arcpy.Exists(NFHL_data_clip): #! Remove if statement after testng
+        arcpy.analysis.Clip(S_Fld_Haz_Ar, county_boundary, NFHL_data_clip)
+
+    AO_features = os.path.join(temp_output_location, "AO_features")
+    AH_features = os.path.join(temp_output_location, "AH_features")
+    
+    #make feature layers for both AO and AH features
+    arcpy.management.MakeFeatureLayer(NFHL_data_clip, "NFHL_data_clip_AO_layer")
+    arcpy.management.SelectLayerByAttribute(in_layer_or_view="NFHL_data_clip_AO_layer", selection_type="NEW_SELECTION", where_clause="FLD_ZONE = 'AO'")
+    arcpy.management.CopyFeatures(in_features="NFHL_data_clip_AO_layer", out_feature_class=AO_features)
+
+    arcpy.management.MakeFeatureLayer(NFHL_data_clip, "NFHL_data_clip_AH_layer")
+    arcpy.management.SelectLayerByAttribute(in_layer_or_view="NFHL_data_clip_AH_layer", selection_type="NEW_SELECTION", where_clause="FLD_ZONE = 'AH'")
+    arcpy.management.CopyFeatures(in_features="NFHL_data_clip_AH_layer", out_feature_class=AH_features)
+
+    #Append AO and AH features to S_AOI_Ar
+    num_AO_features = arcpy.GetCount_management(AO_features).getOutput(0)
+    num_AH_features = arcpy.GetCount_management(AH_features).getOutput(0)
+
+    #AO Features
+    if num_AH_features != "0":
+        arcpy.AddMessage("Appending AO S_AOI_Ar")
+        arcpy.AddMessage("Number of AO features found in county: {0}".format(num_AO_features))
+
+        # Count number of entries in S_AOI_Ar before appending
+        num_entries_before = int(arcpy.GetCount_management(S_AOI_Ar).getOutput(0))
+        msg("Number of S_AOI_Ar entries before appending: {0}".format(num_entries_before))
+        
+        msg("Appending new AO features to S_AOI_Ar features...")
+        arcpy.management.Append(AO_features, S_AOI_Ar, "NO_TEST")
+
+        #loop through appended feautres with update cursor and add values to 
+        msg("Adding fields to new features ...")
+        AOI_Typ = "4000" #Riverine
+        AOI_Issue = "4050" #AO
+        
+        row_start = num_entries_before 
+        with arcpy.da.UpdateCursor(S_AOI_Ar, ["AOI_TYP", "AOI_ISSUE", "AOI_INFO", "NOTES"]) as cursor:
+            #only update new features
+            for row_num, row in enumerate(cursor):
+                if row_num >= row_start:
+                    row[0] = AOI_Typ
+                    row[1] = AOI_Issue
+                    row[2] = "NP"
+                    row[3] = "NP"
+                    cursor.updateRow(row)
+    else:
+        arcpy.AddMessage("No AO features found in county")
+    
+    #AH Features
+    if num_AH_features != "0":
+        arcpy.AddMessage("Appending AH S_AOI_Ar")
+        arcpy.AddMessage("Number of AH features found in county: {0}".format(num_AH_features))
+
+        # Count number of entries in S_AOI_Ar before appending
+        num_entries_before = int(arcpy.GetCount_management(S_AOI_Ar).getOutput(0))
+        msg("Number of S_AOI_Ar entries before appending: {0}".format(num_entries_before))
+        
+        msg("Appending new AH features to S_AOI_Ar features...")
+        arcpy.management.Append(AH_features, S_AOI_Ar, "NO_TEST")
+
+        #loop through appended feautres with update cursor and add values to 
+        msg("Adding fields to new features ...")
+        AOI_Typ = "4000" #Riverine
+        AOI_Issue = "4060" #AH
+
+        row_start = num_entries_before
+        with arcpy.da.UpdateCursor(S_AOI_Ar, ["AOI_TYP", "AOI_ISSUE", "AOI_INFO", "NOTES"]) as cursor:
+            #only update new features
+            for row_num, row in enumerate(cursor):
+                if row_num >= row_start:
+                    row[0] = AOI_Typ
+                    row[1] = AOI_Issue
+                    row[2] = "NP"
+                    row[3] = "NP"
+                    cursor.updateRow(row)
+    else:
+        arcpy.AddMessage("No AH features found in county")
+        
     return S_AOI_Ar
 
 def Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, FIPS_code):
@@ -711,16 +815,18 @@ if __name__ == "__main__":
     State_code = FIPS_code[:2]
     County_code = FIPS_code[2:5]
 
+    #Get and Check Source Data
     S_FFRMS_Proj_Ar, county_boundary, county_name = get_county_info(FFRMS_Geodatabase)
-
     NFHL_data, levee_features = Check_Source_Data(Tool_Template_Folder)
+    S_FFRMS_Ar = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers", "S_FFRMS_Ar")
+    S_AOI_Ar = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers", "S_AOI_Ar")
+
+    #AH and AO
+    S_AOI_Ar = Add_AH_AO_to_S_AOI_Ar(NFHL_data, county_boundary, S_AOI_Ar)
 
     FV00_polygon, FV03_polygon = Convert_Rasters_to_Polygon(FFRMS_Geodatabase)
 
     NFHL_100yr = Extract_NFHL_100yr_Floodplain(FIPS_code, FFRMS_Geodatabase, NFHL_data, S_FFRMS_Proj_Ar)
-
-    S_FFRMS_Ar = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers", "S_FFRMS_Ar")
-    S_AOI_Ar = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers", "S_AOI_Ar")
 
     #Populate all S_FFRMS_AR Fields
     Populate_S_FFRMS_Ar(FV03_polygon, S_FFRMS_Proj_Ar, S_FFRMS_Ar, county_name, FIPS_code)
@@ -731,10 +837,26 @@ if __name__ == "__main__":
     #Levees
     S_AOI_Ar = Add_Levees_to_S_AOI_Ar(FV03_polygon, S_AOI_Ar, levee_features)
 
+    #AH and AO
+    #S_AOI_Ar = Add_AH_AO_to_S_AOI_Ar(NFHL_data, county_boundary, S_AOI_Ar)
+
     #Populate all S_AOI_Ar fields
     Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, FIPS_code)
 
-    #Delete identical records:
+    #Delete identical records using AOI_Issue and shape length:
+    msg("Deleting duplicate AO, AH, and Levee features...")
+    msg("Number of features prior to deleting identical features: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
+    try:
+        arcpy.management.AddField(S_AOI_Ar, "Len_Round", "TEXT", field_length=254)
+    except:
+        pass
+    #creates field that is the AOI_ISSUE (like Levee) and the shape length rounded to 1 decimal place for comparisons.
+    arcpy.management.CalculateField(S_AOI_Ar, "Duplicate", "str((!AOI_ISSUE!) + str(round(!Shape_Length!, 1)))", "PYTHON3")
+    arcpy.management.DeleteIdentical(in_dataset=S_AOI_Ar, fields=["Duplicate"])
+    #arcpy.management.DeleteField(S_AOI_Ar, "Duplicate")
+    msg("Number of features after deleting identical features: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
+
+    #Delete identical records based on SHAPE
     msg("Deleting any remaining identical records...")
     msg("Number of features prior to deleting identical features: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
     arcpy.management.DeleteIdentical(in_dataset=S_AOI_Ar, fields=["Shape"], xy_tolerance="1 Meters")

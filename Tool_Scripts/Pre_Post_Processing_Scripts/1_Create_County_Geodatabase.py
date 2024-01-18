@@ -255,15 +255,44 @@ def Reproject_FFRMS_gdb_Feature_Classes(Output_Spatial_Reference, FFRMS_Geodatab
 
     feature_dataset = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers")
     feature_dataset_projected = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers_projected")
-    arcpy.management.Project(feature_dataset, feature_dataset_projected, Output_Spatial_Reference)
+    try:
+        arcpy.management.Project(feature_dataset, feature_dataset_projected, Output_Spatial_Reference)
+    except:
+        msg("Cannot project feature dataset directly from UTM 19 to UTM {0}".format(UTM_zone))
+
+        interim_sr = arcpy.SpatialReference("NAD 1983 UTM Zone 5N".format(UTM_zone))
+        feature_dataset_projected_interim = os.path.join(FFRMS_Geodatabase, "FFRMS_Spatial_Layers_projected_interim")
+
+        msg("Projecting to interim spatial reference {0}".format(interim_sr.name))
+        arcpy.management.Project(feature_dataset, feature_dataset_projected_interim, interim_sr)
+
+        msg("Projecting to UTM zone {0}".format(UTM_zone))
+        try:
+            arcpy.management.Project(feature_dataset_projected_interim, feature_dataset_projected, Output_Spatial_Reference)
+            msg("Feature dataset successful projected to UTM zone {0}".format(UTM_zone))
+        except:
+            warn("Cannot project feature dataset to UTM zone {0}".format(UTM_zone))
+            warn("Please reach out to philip.duvall@stantec.com to troubleshoot issue")
+            return
+
+        arcpy.management.Delete(feature_dataset_projected_interim)
+
     arcpy.management.Delete(feature_dataset)
     arcpy.management.Rename(feature_dataset_projected, "FFRMS_Spatial_Layers")
 
     arcpy.env.workspace = feature_dataset
-    #Files may have wrong name from projecting - rename to remove _1
-    for fc in arcpy.ListFeatureClasses():
-        if fc.endswith("_1"):
+    #Files may have wrong name from projecting - rename to remove _1 or (_1_1 if double projected)
+    spatial_features = arcpy.ListFeatureClasses()
+    msg("Features classes are:")
+    for fc in spatial_features:
+        if fc.endswith("_1_1"):
+            arcpy.management.Rename(fc, fc[:-4])
+            msg(fc[:-4])
+        elif fc.endswith("_1"):
             arcpy.management.Rename(fc, fc[:-2])
+            msg(fc[:-2])
+        else:
+            msg(fc)
 
 def Add_County_Info_to_S_FFRMS_Proj_Ar(FFRMS_Geodatabase, county_boundary, FIPS_code, county_name, UTM_zone, pub_date_string):
     arcpy.AddMessage(u"\u200B")
@@ -276,20 +305,26 @@ def Add_County_Info_to_S_FFRMS_Proj_Ar(FFRMS_Geodatabase, county_boundary, FIPS_
     #Get today's date and pub-date in parse and text format
     today_date = datetime.datetime.today()                                #parse-time format for today
     today_date_string = today_date.strftime("%m/%d/%Y")                 #string format for today
-    pub_date = datetime.datetime.strptime(pub_date_string, "%m/%d/%Y")  #parse-time format for pub_date
+
+    try:
+        pub_date = datetime.datetime.strptime(pub_date_string, "%m/%d/%Y")  #parse-time format for pub_date
     
-    msg("Today's date is {0}".format(today_date_string))
-    msg("Publication date for county is {0}".format(pub_date_string))
+        msg("Today's date is {0}".format(today_date_string))
+        msg("Publication date for county is {0}".format(pub_date_string))
 
-    #If today_date is after pub_date, set prod_date equal to pub_date minus one day (compare parse-time formats)
-    if today_date >= pub_date:
-        prod_date = pub_date
-        prod_date = prod_date.strftime("%m/%d/%Y")
-        msg("Today's date is after publication date - setting prod_date to {0}".format(prod_date))
-    else:
-        msg("Today's date is before publication date - setting prod_date to {0}".format(today_date_string))
+        #If today_date is after pub_date, set prod_date equal to pub_date minus one day (compare parse-time formats)
+        if today_date >= pub_date:
+            prod_date = pub_date
+            prod_date = prod_date.strftime("%m/%d/%Y")
+            msg("Today's date is after publication date - setting prod_date to {0}".format(prod_date))
+        else:
+            msg("Today's date is before publication date - setting prod_date to {0}".format(today_date_string))
+            prod_date = today_date_string
+
+    except:
+        warn("Error getting PUB_DATE from FFRMS_Counties Shapefile - Using today's date as PROD_DATE in S_FFRMS_Proj_Ar. Adjust if needed")
         prod_date = today_date_string
-
+    
     with arcpy.da.UpdateCursor(S_FFRMS_Proj_Ar, ["FIPS", "POL_NAME1", "EFF_DATE", "PROD_DATE", "LIDAR_DATE", "SOURCE_CIT", "PROJECTION", "PROJ_ZONE", "PROJ_UNIT", "CASE_NO", "NOTES"]) as cursor:
         for row in cursor:
             row[0] = FIPS_code[:5]
