@@ -1,13 +1,18 @@
 FFRMS GIS Tools
 
-This toolbox has the following five (5) tools:
+This toolbox has the following six (6) tools:
 
-0 - Prepare FVA Inputs
+0 - Prepare FVA Inputs (HUC8 or Countywide)
 
-User Inputs:
+User Inputs (HUC8):
+-	Production Folder: Location where you will produce FVA inputs
+-	HUC8 Number: 8-digit HUC8
+
+User Inputs (Countywide):
 -	County Production Folder: Highest-level folder housing all data for the county.
 -	FIPS Code: 5-number State & County code. 
--	MIP Data: If valid MIP data is found, it will processed and stored here. Leave blank if no MIP data is available
+
+User Inputs (Both):
 -	Tool Template Files Folder (non-Stantec users) – included in toolbox zip folder, and contains necessary template files, including:
 	-	FFRMS_Coastal_DB_20231020.gdb
 	-	FFRMS_Riverine_DB_20231020.gdb
@@ -56,9 +61,11 @@ Tool Process:
 2.	Checks the source data locations and ensures valid files. 
 3.	Sets the spatial reference of the county geodatabase to the appropriate UTM zone (if no UTM zone provided, uses NRCS API to get UTM # based on the FIPS code) 
 4.	Copies template geodatabase to output location and projects all spatial feature classes to the appropriate UTM zone.
+	b.	Template files start in UTM zone 19.
+	a. 	For cases where target UTM zones are 4 or lower, spatial files are reprojected twice, as UTM zones can only be projected 15 zones (90 degrees) at a time. 
 5.	Populates S_FFRMS_Proj_Ar with county boundary and populates all fields.
 	a.	EFF_DATE is “FEMA” date from counties shapefile.
-	b.	PROD_DATE is the date that the tool is run.
+	b.	PROD_DATE is set to be equal to the date the tool is run, or the FEMA_DATE in the FFRMS Counties Shapefile, whichever comes first.
 6.	Populates S_Eff_0_2pct_Ar with appropriate NFHL data.
 	a.	Uses the query: "SFHA_TF = 'T' OR ZONE_SUBTY = '0.2 PCT ANNUAL CHANCE FLOOD HAZARD"
 7.	Configures A_AOI_Ar attribute table to follow same contingent attribute rules as in template gdb
@@ -91,29 +98,22 @@ Tool Process:
 6.	Ensures values are in 32-bit float.
 7.	Appends AOI features to county-wide S_AOI_Ar if option is chosen.
 
-3 – Fix FVA Rasters Tool:
+3 – Fix Countywide Raster Issues:
 
 User inputs:
--	FFRMS County Geodatabase – the gdb created in step 1 and populated with the stitched rasters in step 2.
+- 	FFRMS Geodatabase
 
 Outputs:
--	FFRMS Geodatabase with:
-	- Rasters fixed of elevation discrepancies between freeboard values (i.e. FVA01 is higher than FVA02)
-	- Rasters fixed of extent discrepancies between freeboard values (i.e. FVA01 extends further than FVA02)
+- 	FFRMS Geodatabase with fixed rasters
 
 Tool Process:
-
-1. 	Creates temporary folder within current working directory for saving intermediary calculation rasters
-2.	Finds all freeboard rasters within geodatabase (but not the 0.2% raster)
-3.	Converts all rasters to polygons
-4.	Compares extent differences between adjacent freeboard values by clipping the higher freeboard out of the lower freeboard
-5.	If any features remain, these must be added to the higher freeboard value raster
-6. 	The tool converts features to rasters, sets them equal to the lower FVA values, and then adds 1 foot
-7.	These rasters are mosaiced into the higher FVA raster.
-8.	Adjacent FVA rasters are compared using Raster Calculator to determine if any of the higher FVA elevations are below the lower FVA elevation
-9. 	If elevation discrepancies are found, 1 foot is added to the lower FVA elevation at those cells and mosaiced onto higher FVA raster
-10. 	Elevations are checked again to ensure rasters were fixed.
-11.	Temporary files are deleted.
+-	Identifies rasters in county geodatabase - ignores 0.2% raster
+-	Creates polygons of raster extents
+-	Compares floodplain extents between adjacent FVAs (compares 00 to 01, 01 to 02, 02 to 03)
+-	If extent of lower FVA is greater than higher FVA, the difference is rasterized, made equal to lower FVA +1, and added to higher FVA
+-	Compares cell values between adjacent FVAs
+-	If cell values of lower FVA are greater than higher FVA, the FVA00 is used as a reference and 1, 2, and 3 are added to FVA01, FVA02, and FVA03, respectively. 
+-	Any remaining issues are fixed using median raster values to fill in discrepancy areas where FVA00 is not available
 
 4 – Post-Process FFRMS Geodatabase Tool:
 
@@ -124,7 +124,8 @@ User inputs:
 
 Outputs:
 -	S_Raster_QC_pt with qc points from each HUC8 folder and clipped to county boundary.
--	S_AOI_ar with 2 polygons showing difference between FVA00 and NFHL 100-year floodplains.
+-	S_AOI_Ar with 2 polygons showing difference between FVA00 and NFHL 100-year floodplains.
+-	S_AOI_Ar with Levees added based on NLD; AO and AH polygons added based on S_Fld_Haz_Ar. MIP Search polygons added based on CNMS Scope file (Stantec Only).
 -	S_FFRMS_Ar with unioned county boundary and FVA03 polygon, with “T” and “F” fields populated for FFRMS availability
 -	QC Pass rate based on HANDy QC Centerline Points (output message only)
 
