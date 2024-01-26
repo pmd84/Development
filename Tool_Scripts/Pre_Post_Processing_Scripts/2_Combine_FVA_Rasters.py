@@ -347,33 +347,41 @@ def Create_AOI_and_Erase_Area_Dictionaries(HUC_Erase_Area_gdbs):
         Erase_Area_Feature = os.path.join(gdb, "Erase_Areas_{0}".format(HUC8))
         AOI_Feature = os.path.join(gdb, "FFRMS_Spatial_Layers", "S_AOI_Ar_{0}".format(HUC8))
 
-        if not arcpy.Exists(Erase_Area_Feature):
-            arcpy.env.workspace = gdb
-            features = arcpy.ListFeatureClasses()
-            for feature in features:
-                if "Erase_Areas" in feature:
-                    Erase_Area_Feature = os.path.join(gdb, feature)
-                    break 
-            if Erase_Area_Feature == None:        
-                #arcpy.AddError("Feature 'Erase_Areas_{0}' does not exist in {1}. Please rename Erase Areas to 'Erase_Areas_{0}' and try again".format(HUC8, gdb_name))
-                arcpy.AddError("'Erase_Areas' does not exist in {0}. Please add Erase Areas to geodatabase and try again".format(gdb_name))
-                sys.exit()
-        else:
-            arcpy.AddMessage("Found {0} in {1}".format(os.path.basename(Erase_Area_Feature), gdb_name))
-        
-        if not arcpy.Exists(AOI_Feature):
-            arcpy.env.workspace = os.path.join(gdb, "FFRMS_Spatial_Layers")
-            features = arcpy.ListFeatureClasses()
-            for feature in features:
-                if "S_AOI_Ar" in feature:
-                    AOI_Feature = os.path.join(gdb, "FFRMS_Spatial_Layers", feature)
-                    arcpy.AddMessage("Found {0} in {1}".format(os.path.basename(AOI_Feature), gdb_name))
-                    break
-            if AOI_Feature == None:
-                arcpy.AddError("'S_AOI_Ar' does not exist in {0}. Please add AOI to geodatabase and try again".format(gdb_name))
-                sys.exit()
-        else:
-            arcpy.AddMessage("Found {0} in {1}".format(os.path.basename(AOI_Feature), gdb_name))
+        try:
+            if not arcpy.Exists(Erase_Area_Feature):
+                arcpy.env.workspace = gdb
+                features = arcpy.ListFeatureClasses()
+                for feature in features:
+                    if "Erase_Areas" in feature:
+                        Erase_Area_Feature = os.path.join(gdb, feature)
+                        break 
+                if Erase_Area_Feature == None:        
+                    #arcpy.AddError("Feature 'Erase_Areas_{0}' does not exist in {1}. Please rename Erase Areas to 'Erase_Areas_{0}' and try again".format(HUC8, gdb_name))
+                    arcpy.AddError("'Erase_Areas' does not exist in {0}. Please add Erase Areas to geodatabase and try again".format(gdb_name))
+                    sys.exit()
+            else:
+                arcpy.AddMessage("Found {0} in {1}".format(os.path.basename(Erase_Area_Feature), gdb_name))
+        except:
+            arcpy.AddError("Erase Areas GDB path invalid - please re-add Erase_Areas for HUC8 {0} and try again".format(HUC8))
+            sys.exit()
+
+        try:
+            if not arcpy.Exists(AOI_Feature):
+                arcpy.env.workspace = os.path.join(gdb, "FFRMS_Spatial_Layers")
+                features = arcpy.ListFeatureClasses()
+                for feature in features:
+                    if "S_AOI_Ar" in feature:
+                        AOI_Feature = os.path.join(gdb, "FFRMS_Spatial_Layers", feature)
+                        arcpy.AddMessage("Found {0} in {1}".format(os.path.basename(AOI_Feature), gdb_name))
+                        break
+                if AOI_Feature == None:
+                    arcpy.AddError("'S_AOI_Ar' does not exist in {0}. Please add AOI to geodatabase and try again".format(gdb_name))
+                    sys.exit()
+            else:
+                arcpy.AddMessage("Found {0} in {1}".format(os.path.basename(AOI_Feature), gdb_name))
+        except:
+            arcpy.AddError("AOI GDB path invalid - please re-add S_AOI_Ar for HUC8 {0} and try again".format(HUC8))
+            sys.exit()
 
         #Add to dictionary
         HUC8_erase_area_dict[HUC8] = Erase_Area_Feature
@@ -455,18 +463,6 @@ def find_and_process_rasters_in_folder(folder, raster_name, FVA, HUC8_erase_area
         except:
             arcpy.AddMessage("No Erase_Area feature given for HUC8 {0}".format(HUC8))
             erase = False
-
-        #if Clip_By_HUC8 is true, create feature for HUC8 boundary by querying 'huc8' field
-        # Mask_boundary = "in_memory/Mask_boundary"
-        # if Clip_By_HUC8 == "Yes":
-        #     arcpy.management.MakeFeatureLayer(HUC8_shapefile, "HUC8_Boundary", "huc8 = '{0}'".format(HUC8))
-        #     arcpy.analysis.Clip("HUC8_Boundary",county_shapefile,Mask_boundary)
-        #     arcpy.AddMessage("Clipping {0} raster to HUC8 and county boundary {1}".format(raster_name, HUC8))
-        # else:
-        #     arcpy.AddMessage("Clipping {0} raster to county boundary".format(raster_name))
-        #     arcpy.management.CopyFeatures(County_Boundary, Mask_boundary)
-
-        #Create mask (used later for extracting raster) using Mask_boundary and Erase_Area_subset
         
         arcpy.AddMessage("Creating mask")
         Mask_boundary = County_Boundary
@@ -493,7 +489,7 @@ def find_and_process_rasters_in_folder(folder, raster_name, FVA, HUC8_erase_area
         try:
             outExtractByMask = ExtractByMask(inRaster, inMaskData, extraction_area)
         except:
-            outExtractByMask = ExtractByMask(inRaster, inMaskData)
+            arcpy.AddError("Extracting HUC8 {0} Raster failed. Please ensure that FVA{1} output grids exist for this HUC8. If not, remove this HUC from processing".format(HUC8, FVA))
         
         #save temp raster
         temp_raster_path = os.path.join(FFRMS_Geodatabase, "Temp_HUC8_Raster_{0}".format(raster_num))
@@ -545,7 +541,7 @@ if __name__ == '__main__':
     arcpy.env.workspace = FFRMS_Geodatabase
     arcpy.env.overwriteOutput = True
     arcpy.env.compression = "LZW"
-
+    
     #Fix One-Drive Naming convention:
     HUC_Erase_Area_gdbs_fixed = []
     for gdb in HUC_Erase_Area_gdbs:

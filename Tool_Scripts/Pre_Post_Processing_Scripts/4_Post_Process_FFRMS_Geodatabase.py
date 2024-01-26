@@ -708,9 +708,14 @@ def Populate_S_AOI_Ar(FFRMS_Geodatabase, county_name, NFHL_100yr, FV00_polygon, 
 
 def Add_CNMS_Lines_to_S_AOI_Ar(FFRMS_Geodatabase, NFHL_data, county_boundary, FV03_polygon, S_AOI_Ar):
     arcpy.AddMessage(u"\u200B")
-    arcpy.AddMessage("##### Populating S_AOI_Ar with CNMS Lines #####")
+    arcpy.AddMessage("##### Populating S_AOI_Ar with CNMS Lines without MIP Data #####")
     
     CNMS_file = r"\\us0525-ppfss01\shared_projects\203432303012\FFRMS_Zone3\production\source_data\CNMS\230613_FY23Q2_STARRII_CNMS_Tiers345.gdb\R8_R9_10_FFRMS_All_Scope"
+    if not arcpy.Exists(CNMS_file):
+        arcpy.AddWarning("Could not find CNMS file (on Stantec Server Only) - skipping adding CNMS lines with no MIP/NFHL Data to AOIs")
+        arcpy.AddWarning("Please manually buffer and add any CNMS Lines with no NFHL or MIP Data as AOIs with AOI_ISSUE = 'MIP search undertaken - data not found'")
+        return
+    
     NFHL_S_XS = os.path.join(NFHL_data, "FIRM_Spatial_Layers", "S_XS")
     NFHL_S_BFE = os.path.join(NFHL_data, "FIRM_Spatial_Layers", "S_BFE")
     temp_output_location = "in_memory"
