@@ -839,10 +839,10 @@ if __name__ == "__main__":
 
     #Delete identical records based on SHAPE
 
-    msg("Deleting any identical records...")
-    msg("Number of features prior to deleting identical features: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
-    arcpy.management.DeleteIdentical(in_dataset=S_AOI_Ar, fields=["Shape"], xy_tolerance="1 Meters")
-    msg("Number of features after deleting identical records: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
+    # msg("Deleting any identical records...")
+    # msg("Number of features prior to deleting identical features: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
+    # arcpy.management.DeleteIdentical(in_dataset=S_AOI_Ar, fields=["Shape"], xy_tolerance="1 Meters")
+    # msg("Number of features after deleting identical records: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
     
     # Populate S_Raster_QC_pt
     S_Raster_QC_pt = Populate_S_Raster_QC_pt(FFRMS_Geodatabase, NFHL_data, Tool_Output_Folders, county_boundary, FIPS_code, county_name)

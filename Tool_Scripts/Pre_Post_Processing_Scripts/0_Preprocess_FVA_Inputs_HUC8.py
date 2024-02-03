@@ -369,6 +369,10 @@ def Create_L_XS_Table(HUC8, L_XS_Elev):
         NGVD29 = Check_Elev_Datum(FVA_output_dbf, "FVA_L_XS_Elev")
         if NGVD29 == True:
             ngvd29_l_xs_table = os.path.join(convert_folder, "FVA_L_XS_Elev.dbf")
+            if not os.path.exists(convert_folder):
+                msg("Creating NGVD29 Convert Folder")
+                os.makedirs(convert_folder)
+            msg("Moving L_XS_Elev to Convert_NGVD29_to_NAVD88 folder")
             arcpy.conversion.ExportTable(in_table=FVA_output_dbf,out_table=ngvd29_l_xs_table)
             arcpy.management.Delete(FVA_output_dbf)
 

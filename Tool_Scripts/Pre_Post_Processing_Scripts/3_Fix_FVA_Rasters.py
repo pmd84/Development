@@ -251,10 +251,24 @@ def Find_FVA_Rasters(FFRMS_Geodatabase):
 
     raster_list = [raster_dict["00FVA"], raster_dict["01FVA"], raster_dict["02FVA"], raster_dict["03FVA"]]
 
+    #Find 0.2% rasters
+    process_02pct = False
+    raster_02pct = None
+    for raster in arcpy.ListRasters():
+        try:
+            Freeboard_Val_1 = raster.split("_")[3]
+            Freeboard_Val_2 = raster.split("_")[4]
+            if Freeboard_Val_1 == "0" and Freeboard_Val_2 == "2PCT":
+                msg("Found 0.2% Raster: {}".format(raster))
+                raster_02pct = pth.join(FFRMS_Geodatabase,raster)
+                process_02pct = True
+        except IndexError:
+            continue
+
     #Reset workspace
     arcpy.env.workspace = current_workspace
 
-    return raster_list, raster_dict
+    return raster_list, raster_dict, process_02pct, raster_02pct
 
 def Check_FVA_Difference_Polygon(lower_FVA, higher_FVA, diff_polygon):
     """
@@ -775,6 +789,52 @@ def check_and_fix_raster_extent_differences(temp_gdb, raster_list):
         #Delete temporary raster
         mgmt.Delete(Add_raster)  
 
+def Fix_02_pct_Raster(raster_02pct_path, raster_list, temp_gdb, process_02pct):
+    if process_02pct:
+        failed2 = False
+
+        title_text("Fixing 0.2% Raster")
+        
+        lower_FVA = "00FVA"
+        higher_FVA = "02PCT"
+        FVA0_raster_path = raster_list[0]
+
+        title_text(f"Calculating FVA Difference between {lower_FVA} and {higher_FVA} rasters")
+
+        #Determine if there are any negative differences, and provide difference raster
+        min_diff_val, min = create_difference_raster(raster_02pct_path, FVA0_raster_path)
+        if min_diff_val >= 0:
+            msg('No difference values less than 0 found - no changes will be made to {} raster'.format(higher_FVA))
+            return failed2
+        msg(f'Cell Value Descrepancies found between {lower_FVA} and {higher_FVA} - Fixing...')
+    
+        #Set cells equal to FVA0
+        con = set_difference_raster_to_lower_FVA_values(min, FVA0_raster_path) #Set diff to FVA00 values
+
+        #Fix all FVA rasters below the current higher FVA
+        update_cells_and_mosaic(con, raster_02pct_path, 0) #Add 0 to 00FVA raster to get 02PCT raster
+
+        #Check to see if this actually fixed the problem!
+        min_diff_val_fixed_final, min_fixed_final = create_difference_raster(raster_02pct_path, FVA0_raster_path)
+        if min_diff_val_fixed_final >= 0:
+            msg('No difference values less than 0 found - {0} Raster has been fixed!'.format(higher_FVA))
+        else:
+            warn('Differences still exist - Raster has not been completely fixed. Please check difference raster for inconsistencies')
+            output_name = f"diff_{higher_FVA}_{lower_FVA}_final"
+            output_path = pth.join(temp_gdb, output_name)
+            msg(f'Difference raster path: {output_path}')
+            failed2 = True
+            try:
+                arcpy.CopyRaster_management(arcpy.Raster(min_fixed_final), output_path)
+            except:
+                try:
+                    os.remove(output_path)
+                    arcpy.CopyRaster_management(arcpy.Raster(min_fixed_final), output_path)
+                except Exception as e:
+                    msg("Could not copy raster to temp gdb")
+
+        return failed2
+    
 if __name__ == "__main__":
     
     # Set up temp workspace
@@ -792,7 +852,7 @@ if __name__ == "__main__":
     arcpy.env.overwriteOutput = True
 
     #Find Rasters in Geodatabase and create dictionary - Keys are FVA values, Values are Raster path
-    raster_list, raster_dict = Find_FVA_Rasters(FFRMS_Geodatabase)
+    raster_list, raster_dict, process_02pct, raster_02pct_path = Find_FVA_Rasters(FFRMS_Geodatabase)
  
     ## PART 1: FIXING RASTER EXTENTS
     check_and_fix_raster_extent_differences(temp_gdb, raster_list)
@@ -800,11 +860,17 @@ if __name__ == "__main__":
     ## PART 2: FIXING CELL VALUES
     failed = calc_fva_diff2(raster_list, temp_gdb)
 
+    # PART 3: FIXING 0.2% RASTER
+    failed2 = Fix_02_pct_Raster(raster_02pct_path, raster_list, temp_gdb, process_02pct)
+
     #Delete temporary files
-    if not failed:
+    if not failed and not failed2:
         msg("All FVAs pass - deleting temporary files")
-        mgmt.Delete(temp_gdb)
-        shutil.rmtree(temp_dir)
+        try:
+            mgmt.Delete(temp_gdb)
+            shutil.rmtree(temp_dir)
+        except:
+            warn("Failed to delete temp geodatabase - please delete manually")
     else:
         warn("Not all FVAs pass - review temp geodatabse for discrepancies")
         warn(f"Temp GDB location: {temp_gdb}")
