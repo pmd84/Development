@@ -79,7 +79,7 @@ def exportShapefiles(FFRMS_Geodatabase, shapefile_dir):
         feature_class_name = os.path.basename(feature_class)
         output_feature_class = os.path.join(shapefile_dir, feature_class_name+".shp")
 
-        arcpy.env.transferDomains = True if feature_class_name == "S_AOI_Ar" else False
+        arcpy.env.transferDomains = True if (feature_class_name == "S_AOI_Ar" or feature_class_name == "S_Raster_QC_Pt") else False
 
         try:
             arcpy.conversion.ExportFeatures(in_features= feature_class, out_features= output_feature_class)
@@ -94,6 +94,9 @@ def exportShapefiles(FFRMS_Geodatabase, shapefile_dir):
         if "d_AOI_ISSU" in [field.name for field in arcpy.ListFields(output_feature_class)]:
                 arcpy.management.CalculateField(output_feature_class, "AOI_ISSUE", "!d_AOI_ISSU!", "PYTHON3")
                 arcpy.management.DeleteField(output_feature_class, "d_AOI_ISSU")
+        if "d_PASS_FAI" in [field.name for field in arcpy.ListFields(output_feature_class)]:
+                arcpy.management.CalculateField(output_feature_class, "PASS_FAIL", "!d_PASS_FAI!", "PYTHON3")
+                arcpy.management.DeleteField(output_feature_class, "d_PASS_FAI")
 
     #export L_Source_Cit table to shapefile folder in dbf form
     arcpy.AddMessage("Exporting L_Source_Cit table")
