@@ -309,17 +309,29 @@ def update_fields_in_S_Raster_copies(S_Raster_copy_all, FIPS_code, county_name):
             row[3] = "NP"
             row[6] = abs(row[5] - row[4])
             if row[6] <= 0.5:
-                row[7] = "Pass"
+                row[7] = "1000" #Pass
             else:
-                row[7] = "Fail"
+                row[7] = "1010" #Fail
 
             cursor.updateRow(row)
 
     return S_Raster_copy_all
 
-def Select_QC_Points_on_county_S_XS(S_Raster_copy_all, S_Raster_QC_pt, NFHL_data, county_boundary):
+def Select_QC_Points_on_county_S_XS(S_Raster_copy_all, S_Raster_QC_pt, NFHL_data, county_boundary, MIP_Data_XS_list, MIP_Processing):
     arcpy.AddMessage("Selecting QC points that intersect with NFHL S_XS and are within county boundary")
     S_XS = os.path.join(NFHL_data, "FIRM_Spatial_Layers", "S_XS")
+    S_XS_layer = arcpy.MakeFeatureLayer_management(S_XS, "S_XS_layer")
+    
+    if MIP_Processing:
+        msg("MIP and/or LFD Data provided - including additional XS to select QC points")
+        for xs_file in MIP_Data_XS_list:
+            #append XS to S_XS_layer
+            msg(f"Appending {os.path.basename(xs_file)} cross sections to NFHL_XS layer for QC point selection")
+            try:
+                arcpy.management.Append(xs_file, S_XS_layer, "NO_TEST")
+            except Exception as e:
+                msg(f"Failed to append {os.path.basename(xs_file)} - please ensure you provided cross section shapefiles")
+                msg(e)
 
     #clip S_Raster_copy_all to county boundary
     S_raster_clip = r"in_memory/S_raster_clip"
@@ -327,15 +339,16 @@ def Select_QC_Points_on_county_S_XS(S_Raster_copy_all, S_Raster_QC_pt, NFHL_data
 
     #select all points that intersect with S_XS
     arcpy.MakeFeatureLayer_management(S_raster_clip, "S_Raster_copy_intersect")
-    arcpy.management.SelectLayerByLocation(in_layer="S_Raster_copy_intersect", overlap_type="WITHIN A DISTANCE", select_features=S_XS, search_distance="0.1 Meters", selection_type="NEW_SELECTION")
+    arcpy.management.SelectLayerByLocation(in_layer="S_Raster_copy_intersect", overlap_type="WITHIN A DISTANCE", select_features=S_XS_layer, search_distance="1 Meters", selection_type="NEW_SELECTION")
     
     #append selected points to S_Raster_QC_pt
-    arcpy.AddMessage("Appending selected QC points to S_Raster_QC_Pts")
+    qc_point_count = arcpy.GetCount_management("S_Raster_copy_intersect").getOutput(0)
+    arcpy.AddMessage(f"Appending {qc_point_count} selected QC points to S_Raster_QC_Pts")
     arcpy.management.Append(inputs="S_Raster_copy_intersect", target=S_Raster_QC_pt, schema_type="NO_TEST")
 
     return S_Raster_QC_pt
     
-def Populate_S_Raster_QC_pt(FFRMS_Geodatabase, NFHL_data, Tool_Output_Folders, county_boundary, FIPS_code, county_name):
+def Populate_S_Raster_QC_pt(FFRMS_Geodatabase, NFHL_data, Tool_Output_Folders, county_boundary, FIPS_code, county_name, MIP_Data_XS_list, MIP_Processing):
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Populating S_Raster_QC_pt #####")
 
@@ -380,7 +393,7 @@ def Populate_S_Raster_QC_pt(FFRMS_Geodatabase, NFHL_data, Tool_Output_Folders, c
     S_Raster_copy_all = update_fields_in_S_Raster_copies(S_Raster_copy_all, FIPS_code, county_name)
 
     #Select all points that intersect with NFHL S_XS (within county boundary) and append to S_Raster_QC_pt 
-    S_Raster_QC_pt = Select_QC_Points_on_county_S_XS(S_Raster_copy_all, S_Raster_QC_pt, NFHL_data, county_boundary)
+    S_Raster_QC_pt = Select_QC_Points_on_county_S_XS(S_Raster_copy_all, S_Raster_QC_pt, NFHL_data, county_boundary, MIP_Data_XS_list, MIP_Processing)
 
     return S_Raster_QC_pt
 
@@ -445,17 +458,30 @@ def loop_through_tool_folders_for_cl_01_points_shapefiles(Tool_Output_Folders):
 
     return centerline_qc_points
 
-def Select_cl_QC_Points_on_county_S_XS(centerline_qc_points, NFHL_data, county_boundary):
+def Select_cl_QC_Points_on_county_S_XS(centerline_qc_points, NFHL_data, county_boundary, MIP_Data_XS_list, MIP_Processing, MIP_S_Profil_Basln_list):
     arcpy.AddMessage("Selecting QC points that intersect with NFHL S_XS and are within county boundary")
+    
     S_XS = os.path.join(NFHL_data, "FIRM_Spatial_Layers", "S_XS")
-
+    S_XS_layer = arcpy.MakeFeatureLayer_management(S_XS, "S_XS_layer")
+    
+    if MIP_Processing:
+        msg("MIP and/or LFD Data provided - including additional XS to select QC points")
+        for xs_file in MIP_Data_XS_list:
+            #append XS to S_XS_layer
+            msg(f"Appending {os.path.basename(xs_file)} cross sections to NFHL_XS layer for QC point selection")
+            try:
+                arcpy.management.Append(xs_file, S_XS_layer, "NO_TEST")
+            except Exception as e:
+                msg(f"Failed to append {os.path.basename(xs_file)} - please ensure you provided cross section shapefiles")
+                msg(e)
+            
     #clip cl points to county boundary
     cl_points_clip = r"in_memory/cl_points_clip"
     arcpy.analysis.Clip(centerline_qc_points, county_boundary, cl_points_clip)
 
     #select all points that intersect with S_XS
     arcpy.MakeFeatureLayer_management(cl_points_clip, "cl_points_copy_intersect")
-    arcpy.management.SelectLayerByLocation(in_layer="cl_points_copy_intersect", overlap_type="WITHIN A DISTANCE", select_features=S_XS, search_distance="0.1 Meters", selection_type="NEW_SELECTION")
+    arcpy.management.SelectLayerByLocation(in_layer="cl_points_copy_intersect", overlap_type="WITHIN A DISTANCE", select_features=S_XS_layer, search_distance="1 Meters", selection_type="NEW_SELECTION")
     
     #append selected points to S_Raster_QC_pt
     centerline_qc_points_NFHL = os.path.join("in_memory", "centerline_qc_points_NFHL")
@@ -799,10 +825,15 @@ if __name__ == "__main__":
     
     FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
     Tool_Output_Folders = arcpy.GetParameterAsText(1).split(";")
-    Tool_Template_Folder = arcpy.GetParameterAsText(2)
+    MIP_Data_XS_list = arcpy.GetParameterAsText(2).split(";")
+    MIP_S_Profil_Basln_list = arcpy.GetParameterAsText(3).split(";")
+    Tool_Template_Folder = arcpy.GetParameterAsText(4)
 
     arcpy.env.workspace = FFRMS_Geodatabase
     arcpy.env.overwriteOutput = True
+
+    if MIP_Data_XS_list is not None:
+        MIP_Processing = True
 
     #Get FIPS code from S_FFRMS_Proj_Ar
     FIPS_code = get_FIPS(FFRMS_Geodatabase)
@@ -845,11 +876,12 @@ if __name__ == "__main__":
     # msg("Number of features after deleting identical records: {0}".format(arcpy.GetCount_management(S_AOI_Ar).getOutput(0)))
     
     # Populate S_Raster_QC_pt
-    S_Raster_QC_pt = Populate_S_Raster_QC_pt(FFRMS_Geodatabase, NFHL_data, Tool_Output_Folders, county_boundary, FIPS_code, county_name)
+    S_Raster_QC_pt = Populate_S_Raster_QC_pt(FFRMS_Geodatabase, NFHL_data, Tool_Output_Folders, county_boundary, FIPS_code, county_name, MIP_Data_XS_list, MIP_Processing)
     
     arcpy.AddMessage(u"\u200B")
     arcpy.AddMessage("##### Assessing QC Point pass rate #####")
 
+
     centerline_qc_points = loop_through_tool_folders_for_cl_01_points_shapefiles(Tool_Output_Folders)
-    centerline_qc_points_NFHL = Select_cl_QC_Points_on_county_S_XS(centerline_qc_points, NFHL_data, county_boundary)
+    centerline_qc_points_NFHL = Select_cl_QC_Points_on_county_S_XS(centerline_qc_points, NFHL_data, county_boundary, MIP_Data_XS_list, MIP_Processing)
     Check_QC_Pass_Rate(centerline_qc_points_NFHL)
