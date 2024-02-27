@@ -458,7 +458,7 @@ def loop_through_tool_folders_for_cl_01_points_shapefiles(Tool_Output_Folders):
 
     return centerline_qc_points
 
-def Select_cl_QC_Points_on_county_S_XS(centerline_qc_points, NFHL_data, county_boundary, MIP_Data_XS_list, MIP_Processing, MIP_S_Profil_Basln_list):
+def Select_cl_QC_Points_on_county_S_XS(centerline_qc_points, NFHL_data, county_boundary, MIP_Data_XS_list, MIP_Processing):
     arcpy.AddMessage("Selecting QC points that intersect with NFHL S_XS and are within county boundary")
     
     S_XS = os.path.join(NFHL_data, "FIRM_Spatial_Layers", "S_XS")
@@ -481,7 +481,7 @@ def Select_cl_QC_Points_on_county_S_XS(centerline_qc_points, NFHL_data, county_b
 
     #select all points that intersect with S_XS
     arcpy.MakeFeatureLayer_management(cl_points_clip, "cl_points_copy_intersect")
-    arcpy.management.SelectLayerByLocation(in_layer="cl_points_copy_intersect", overlap_type="WITHIN A DISTANCE", select_features=S_XS_layer, search_distance="1 Meters", selection_type="NEW_SELECTION")
+    arcpy.management.SelectLayerByLocation(in_layer="cl_points_copy_intersect", overlap_type="WITHIN A DISTANCE", select_features=S_XS_layer, search_distance="3 Meters", selection_type="NEW_SELECTION")
     
     #append selected points to S_Raster_QC_pt
     centerline_qc_points_NFHL = os.path.join("in_memory", "centerline_qc_points_NFHL")
@@ -826,13 +826,16 @@ if __name__ == "__main__":
     FFRMS_Geodatabase = arcpy.GetParameterAsText(0)
     Tool_Output_Folders = arcpy.GetParameterAsText(1).split(";")
     MIP_Data_XS_list = arcpy.GetParameterAsText(2).split(";")
-    MIP_S_Profil_Basln_list = arcpy.GetParameterAsText(3).split(";")
-    Tool_Template_Folder = arcpy.GetParameterAsText(4)
+    Tool_Template_Folder = arcpy.GetParameterAsText(3)
 
     arcpy.env.workspace = FFRMS_Geodatabase
     arcpy.env.overwriteOutput = True
 
-    if MIP_Data_XS_list is not None:
+    if len(MIP_Data_XS_list) == 1 and MIP_Data_XS_list[0] == "None" or MIP_Data_XS_list[0] == "":
+        msg("No MIP Data Provided")
+        MIP_Processing = False
+    else:
+        msg("MIP Data Provided")
         MIP_Processing = True
 
     #Get FIPS code from S_FFRMS_Proj_Ar

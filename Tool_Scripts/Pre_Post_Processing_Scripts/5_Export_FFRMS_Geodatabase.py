@@ -9,6 +9,8 @@ Script documentation
 import arcpy
 import sys
 import os
+from arcpy import AddMessage as msg
+from arcpy import AddWarning as wrn
 
 def getFIPScode(FFRMS_Geodatabase):
     #Get FIPS code from geodatabase S_FFRMS_Proj_Ar
@@ -83,9 +85,17 @@ def exportShapefiles(FFRMS_Geodatabase, shapefile_dir):
 
         try:
             arcpy.conversion.ExportFeatures(in_features= feature_class, out_features= output_feature_class)
-        except:
-            arcpy.AddError("Export Failed for {0} - make sure feature class is not currently open in ArcGIS and try again".format(feature_class_name))
-            exit()
+        except Exception as e:
+            #try using feature class to feature class tool
+            try:
+                msg("Export Features Failed - trying Feature Class to Feature Class tool")
+                arcpy.conversion.FeatureClassToShapefile(Input_Features=feature_class, Output_Folder=os.path.dirname(output_feature_class))
+                #arcpy.conversion.FeatureClassToFeatureClass(feature_class, shapefile_dir, feature_class_name)
+            except Exception as e:
+                wrn("Feature Class to Feature Class tool failed - check licensing and ensure you have advanced arcgis license")
+                wrn(f"Error Message: {e}")
+                arcpy.AddError("Export Failed for {0} - make sure feature class is not currently open in ArcGIS and try again".format(feature_class_name))
+                exit()
 
         #Populate AOI_TYP and AOI_ISSUE fields with their domain descriptions, so output is not coded
         if "d_AOI_TYP" in [field.name for field in arcpy.ListFields(output_feature_class)]:
